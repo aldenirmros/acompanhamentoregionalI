@@ -7079,7 +7079,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxzLWchCIqyvqdHSCqjZ905WopRUIASnHrJu9B3RsVxUAMSdCXja_n7svIqaxwPcs1S/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxkht7hvE2oAI1kv_U86TV4r9KihOho2b4WNsoAWOgmASQ-TF19XAVSD_ujcnt5t-OV/exec';
 
 function getCfg(){
   try{
@@ -7101,7 +7101,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxzLWchCIqyvqdHSCqjZ905WopRUIASnHrJu9B3RsVxUAMSdCXja_n7svIqaxwPcs1S/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxkht7hvE2oAI1kv_U86TV4r9KihOho2b4WNsoAWOgmASQ-TF19XAVSD_ujcnt5t-OV/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7110,7 +7110,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxzLWchCIqyvqdHSCqjZ905WopRUIASnHrJu9B3RsVxUAMSdCXja_n7svIqaxwPcs1S/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxkht7hvE2oAI1kv_U86TV4r9KihOho2b4WNsoAWOgmASQ-TF19XAVSD_ujcnt5t-OV/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7728,11 +7728,22 @@ function _deepMerge(cloud, local) {
 // Mantém cloudPush como alias para compatibilidade com chamadas existentes no código
 async function cloudPush() { await _syncEnqueue(); }
 
-// ── Subir Vendas Locais → distribui pelo GAS para cada supervisor ────────────
+// ── Subir Vendas Locais → GAS distribui para cada supervisor (action=distribuir via GET) ─
 async function subirVendasLocais(btn) {
   const cfg = getCfg();
   if (!cfg?.gsUrl) {
     toast('Configure a URL do Apps Script primeiro (ícone de nuvem)', '⚠️');
+    return;
+  }
+
+  // Só admins/gerentes podem distribuir
+  const isAdminRole = currentUser && (
+    currentUser.superAdmin === true ||
+    currentUser.superAdmin === 'true' ||
+    ['gerente','regional'].includes(String(currentUser.role||'').toLowerCase())
+  );
+  if (!isAdminRole) {
+    toast('Apenas administradores podem distribuir vendas', '⚠️');
     return;
   }
 
@@ -7744,41 +7755,45 @@ async function subirVendasLocais(btn) {
   if (btn) btn.style.pointerEvents = 'none';
 
   try {
-    // Monta array plano de todas as vendas do DB local
-    const vendas = [];
-    Object.keys(DB.vendas || {}).forEach(mes => {
-      (DB.vendas[mes] || []).forEach(v => vendas.push({ mes, ...v }));
-    });
-
-    if (!vendas.length) {
+    const totalLocal = Object.values(DB.vendas || {}).reduce((a, arr) => a + (arr?.length || 0), 0);
+    if (!totalLocal) {
       toast('Nenhuma venda local encontrada', 'ℹ️');
       return;
     }
 
-    const payload = {
-      _requestUserId   : String(currentUser?.id || ''),
-      _distribuirVendas: true,
-      vendas           : vendas
-    };
+    // Usa GET com action=distribuir — evita CORS preflight, resposta legível
+    const url = cfg.gsUrl
+      + '?action=distribuir'
+      + '&userId=' + encodeURIComponent(currentUser.id)
+      + '&_t=' + Date.now();
 
     const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), 30000);
+    const tid  = setTimeout(() => ctrl.abort(), 45000);
 
-    await fetch(cfg.gsUrl, {
-      method : 'POST',
-      mode   : 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      body   : JSON.stringify(payload),
-      signal : ctrl.signal
-    });
+    const res  = await fetch(url, { signal: ctrl.signal });
     clearTimeout(tid);
 
-    toast(`${vendas.length} vendas enviadas para distribuição ✓`, '☁️');
-    syncLog('Vendas locais enviadas para distribuição — ' + new Date().toLocaleTimeString('pt-BR'));
+    const json = await res.json();
+
+    if (json.error) {
+      toast('Erro: ' + json.error, '❌');
+      syncLog('Erro na distribuição: ' + json.error);
+      return;
+    }
+
+    const n       = json.distribuido || 0;
+    const por     = json.porUsuario  || {};
+    const detalhe = Object.entries(por).map(([u,q]) => `${u}: ${q}`).join(' · ');
+    toast(`${n} vendas distribuídas ✓${detalhe ? ' — '+detalhe : ''}`, '☁️');
+    syncLog(`Vendas distribuídas (${n}) — ${new Date().toLocaleTimeString('pt-BR')}${detalhe ? ' | '+detalhe : ''}`);
+
+    if ((json.orphans||[]).length) {
+      console.warn('Vendas sem supervisor mapeado:', json.orphans);
+    }
 
   } catch(err) {
     console.error('subirVendasLocais error:', err);
-    toast('Erro ao enviar: ' + err.message, '❌');
+    toast('Erro ao distribuir: ' + (err.name === 'AbortError' ? 'tempo esgotado' : err.message), '❌');
   } finally {
     if (icon) icon.style.display = '';
     if (spin) spin.style.display = 'none';
