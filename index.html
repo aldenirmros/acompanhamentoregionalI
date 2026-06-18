@@ -8222,7 +8222,13 @@ async function cloudPull(mergeLocal = false){
   setCloudUI('sync','Carregando…');
   try{
     // Timestamp garante URL única: nenhum browser, CDN ou proxy reutiliza cache
-    const url = cfg.gsUrl + '?action=get&_t=' + Date.now();
+    const _pullUser = currentUser?.username || cfg.username || '';
+    const _pullUid  = currentUser?.id || '';
+    const url = cfg.gsUrl
+      + '?action=get'
+      + '&username=' + encodeURIComponent(_pullUser)
+      + '&userId='   + encodeURIComponent(_pullUid)
+      + '&_t='       + Date.now();
     const res = await fetch(url, {
       cache : 'no-store',
       signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
