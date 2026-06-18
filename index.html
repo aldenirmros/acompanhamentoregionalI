@@ -3539,17 +3539,14 @@ function isGerente(u){ u=u||currentUser; return u?.role==='gerente'||u?.superAdm
 // Hubs e regionais de referência (adicionados se ausentes no banco)
 const _CANONICAL_REGIONAIS = [
   {id:1001,          nome:'Regional I',  color:'#2563eb'},
-  {id:1777691730216, nome:'Regional CE', color:'#059669'},
-  {id:1777691830004, nome:'Regional PI', color:'#d97706'},
-];
+ ];
 const _CANONICAL_HUBS = [
   {id:2001,          nome:'ALPHA', regionalId:1001,           color:'#2563eb'},
   {id:1777686429083, nome:'BRAVO', regionalId:1001,           color:'#059669'},
   {id:1777691424502, nome:'CE05',  regionalId:1001,           color:'#db2777'},
   {id:1777691452227, nome:'CE08',  regionalId:1001,           color:'#d97706'},
   {id:1777691488521, nome:'CE09',  regionalId:1001,           color:'#dc2626'},
-  {id:1777691730217, nome:'CE02',  regionalId:1777691730216,  color:'#059669'},
-  {id:1777691830005, nome:'PI02',  regionalId:1777691830004,  color:'#d97706'},
+ 
 ];
 const _PROTECTED_TIME_IDS = new Set(_CANONICAL_HUBS.map(h=>String(h.id)));
 const _PROTECTED_REG_IDS  = new Set(_CANONICAL_REGIONAIS.map(r=>String(r.id)));
