@@ -4022,7 +4022,7 @@ function getScopedSellers(includeInativo=false){
     return false;
   });
 
-  // Gerente com filtro manual ativo
+  // Gerente/superAdmin com filtro manual ativo — filtro é OPCIONAL, nunca esconde dados
   if(isGerente(u)){
     if(scopeFilter.timeId){
       sellers = sellers.filter(s=>s.timeId===scopeFilter.timeId);
@@ -4030,6 +4030,7 @@ function getScopedSellers(includeInativo=false){
       const tids=(DB.times||[]).filter(t=>t.regionalId===scopeFilter.regionalId).map(t=>t.id);
       sellers = sellers.filter(s=>tids.includes(s.timeId));
     }
+    // Sem filtro ativo: retorna TODOS os sellers
     return sellers;
   }
   if(u.role==='regional'){
@@ -4081,7 +4082,14 @@ function populateDashFilter(){
   if(clearBtn) clearBtn.style.display='';
 
   if(rgSel){
-    if(u.role==='regional' && !isGerente(u)){
+    if(isGerente(u)){
+      // Gerente/superAdmin: select sempre visível com TODAS as regionais
+      rgSel.style.display='';
+      const prev = scopeFilter.regionalId || rgSel.value;
+      rgSel.innerHTML=`<option value="">🏠 Todas as Regionais (${(DB.regionais||[]).length})</option>`
+        +(DB.regionais||[]).map(r=>`<option value="${r.id}"${r.id==prev?' selected':''}>${r.nome}</option>`).join('');
+      if(scopeFilter.regionalId) rgSel.value = scopeFilter.regionalId;
+    } else if(u.role==='regional'){
       const myRg = (DB.regionais||[]).find(r=>r.id===u.regionalId);
       rgSel.innerHTML = myRg ? `<option value="${myRg.id}">${myRg.nome}</option>` : '';
       rgSel.value = u.regionalId||'';
@@ -4103,9 +4111,13 @@ function populateDashFilter(){
 
 function populateDashFilterTimes(){
   const u = currentUser;
-  const rgId = u?.role==='regional' && !isGerente(u)
-    ? (u.regionalId||null)  // regional: sempre usa a regional dele
-    : (parseInt(document.getElementById('df-regional')?.value)||null);
+  // Gerente/superAdmin: usa o select de regional (pode ser null = todos)
+  // Regional: sempre usa a regional dele
+  const rgId = isGerente(u)
+    ? (parseInt(document.getElementById('df-regional')?.value)||null)
+    : (u?.role==='regional'
+        ? (u.regionalId||null)
+        : (parseInt(document.getElementById('df-regional')?.value)||null));
   const tmSel= document.getElementById('df-time');
   if(!tmSel) return;
   const times= rgId
@@ -4135,10 +4147,11 @@ function onDashFilterRegional(){
 function onDashFilterTime(){
   const tmId=parseInt(document.getElementById('df-time')?.value)||null;
   const u=currentUser;
-  // Para regional: mantém sempre o regionalId dele; para gerente: usa o select
-  const rgId = u?.role==='regional' && !isGerente(u)
-    ? (u.regionalId||null)
-    : (parseInt(document.getElementById('df-regional')?.value)||null);
+  // Gerente/superAdmin: rgId vem do select (pode ser null = todas)
+  // Regional: sempre usa a regional dele
+  const rgId = isGerente(u)
+    ? (parseInt(document.getElementById('df-regional')?.value)||null)
+    : (u?.role==='regional' ? (u.regionalId||null) : (parseInt(document.getElementById('df-regional')?.value)||null));
   scopeFilter={regionalId:rgId, timeId:tmId};
   _persistScopeFilter();
   updateDashFilterInfo();
@@ -4148,8 +4161,9 @@ function onDashFilterTime(){
 
 function clearDashFilter(){
   const u=currentUser;
-  // Para regional: limpar = voltar a ver todos os HUBs da regional dele
-  const defRgId = (u?.role==='regional' && !isGerente(u)) ? (u.regionalId||null) : null;
+  // Gerente/superAdmin: limpar = ver TUDO (null/null)
+  // Regional: limpar = ver todos os HUBs da sua regional
+  const defRgId = isGerente(u) ? null : ((u?.role==='regional') ? (u.regionalId||null) : null);
   scopeFilter={regionalId:defRgId, timeId:null};
   _persistScopeFilter();
   const rgSel=document.getElementById('df-regional');
@@ -5933,6 +5947,8 @@ function delSellerPermanent(id){
   DB.sellers=DB.sellers.filter(x=>x.id!==id);
   if(selectedSeller===id) selectedSeller=null;
   saveDB(); renderSellers(); renderDash(); populateQESellers();
+  // Exclusão física no backend
+  _backendPhysicalDelete('seller', id);
   toast(`${s.name} excluído permanentemente`,'🗑️');
 }
 function onSellersFilterChange(){
@@ -6045,6 +6061,8 @@ function delTime(id){
   DB.sellers.forEach(s=>{ if(s.timeId===id) s.timeId=null; });
   DB.users=(DB.users||[]).filter(x=>!(x.role==='supervisor'&&x.timeId===id));
   saveDB(); renderSellers();
+  // Exclusão física no backend
+  _backendPhysicalDelete('time', id);
   toast(`HUB "${t.nome}" removido`,'🗑️');
 }
 
@@ -6115,6 +6133,9 @@ function delRegional(id){
   DB.users=(DB.users||[]).filter(u=>u.regionalId!==id);
   DB.regionais=(DB.regionais||[]).filter(x=>x.id!==id);
   saveDB(); renderRegionais(); populateDashFilter();
+  // Exclusão física no backend
+  _backendPhysicalDelete('regional', id);
+  tids.forEach(tid=>_backendPhysicalDelete('time', tid));
   toast(`Regional "${rg.nome}" removida`,'🗑️');
 }
 
@@ -7054,7 +7075,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyIz2lqC3tIL6sORUsvctZuP3Q9tFkj61wUyQg_fmn6K9_WmgMKiWaIqqKWOUBhbGqw/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzdZj8JSKUSMl2HFLyL5NclXI5ejI_88IhpxG43GllpUlSNQ2SsmmuMXmFdUmn1ACA/exec';
 
 function getCfg(){
   try{
@@ -7076,7 +7097,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyIz2lqC3tIL6sORUsvctZuP3Q9tFkj61wUyQg_fmn6K9_WmgMKiWaIqqKWOUBhbGqw/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzdZj8JSKUSMl2HFLyL5NclXI5ejI_88IhpxG43GllpUlSNQ2SsmmuMXmFdUmn1ACA/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7085,7 +7106,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyIz2lqC3tIL6sORUsvctZuP3Q9tFkj61wUyQg_fmn6K9_WmgMKiWaIqqKWOUBhbGqw/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzdZj8JSKUSMl2HFLyL5NclXI5ejI_88IhpxG43GllpUlSNQ2SsmmuMXmFdUmn1ACA/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7234,6 +7255,21 @@ function syncLog(msg){
   if(el) el.textContent = new Date().toLocaleTimeString('pt-BR')+' — '+msg;
 }
 
+
+// ── Envia comando de exclusão física ao backend (GS) ─────────────────────
+async function _backendPhysicalDelete(tipo, id){
+  const cfg = _getGsCfg ? _getGsCfg() : null;
+  if(!cfg?.gsUrl) return; // sem URL configurada, ignora
+  const key = tipo==='regional' ? '_deleteRegional' : tipo==='time' ? '_deleteTime' : '_deleteSeller';
+  const payload = { _requestUserId: String(currentUser?.id||''), [key]: String(id) };
+  const params = new URLSearchParams({ data: JSON.stringify(payload) });
+  try {
+    await fetch(cfg.gsUrl, { method:'POST', body:params });
+  } catch(e) {
+    console.warn('_backendPhysicalDelete falhou:', e);
+  }
+}
+
 function saveDB() {
   // ── 1. Marca timestamp da última alteração local ──
   DB._savedAt = Date.now();
@@ -7292,11 +7328,9 @@ async function _runSync() {
       let cloudRec = null;
       try {
         // Timestamp na URL: impede que browsers/CDN/proxies retornem cache antigo
-        // username necessário para o GAS ler abas SCOPED (ex: joao_vendas)
-        const _syncUsername = currentUser?.username || getSession()?.username || '';
-        const _syncGetUrl = cfg.gsUrl + '?action=get&_t=' + Date.now()
-                          + (_syncUsername ? '&username=' + encodeURIComponent(_syncUsername) : '');
-        const res = await fetch(_syncGetUrl, {
+        const _userId   = currentUser?.id || '';
+        const _username = currentUser?.username || cfg.username || '';
+        const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&_t=' + Date.now(), {
           cache  : 'no-store',
           signal : AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
         });
@@ -7332,23 +7366,11 @@ async function _runSync() {
       const toSend = cloudRec ? _deepMerge(cloudRec, DB) : JSON.parse(JSON.stringify(DB));
 
       // ── PASSO 3: POST com confirmação de resposta ────────────────────────
-      // Tombstones de entidades são aplicados diretamente nas tabelas do payload:
-      // a nuvem recebe os arrays já filtrados (sem as entidades deletadas localmente).
-      // O campo deleted é zerado no payload — os IDs não precisam persistir no Sheets.
+      // Tombstones de entidades (sellers/times/regionais/users) NÃO são gravados
+      // no Sheets — são usados apenas localmente para filtrar o merge desta sessão.
+      // Se forem persistidos no Sheets, acumulam e deletam dados adicionados
+      // manualmente na planilha por outros usuários / pelo administrador.
       const toPush = JSON.parse(JSON.stringify(toSend));
-      // Aplica tombstones locais sobre o payload: garante que regional/time/user/seller
-      // deletado localmente não seja reenviado à nuvem via merge
-      {
-        const _localDel = DB.deleted || {};
-        const _delSel = new Set((_localDel.sellerIds||[]).map(String));
-        const _delTim = new Set((_localDel.timeIds||[]).map(String).filter(id=>!_PROTECTED_TIME_IDS.has(id)));
-        const _delReg = new Set((_localDel.regionalIds||[]).map(String).filter(id=>!_PROTECTED_REG_IDS.has(id)));
-        const _delUsr = new Set((_localDel.userIds||[]).map(String).filter(id=>!_PROTECTED_USR_IDS.has(id)));
-        if(_delSel.size) toPush.sellers   = (toPush.sellers||[]).filter(x=>!_delSel.has(String(x.id)));
-        if(_delTim.size) toPush.times     = (toPush.times||[]).filter(x=>!_delTim.has(String(x.id)));
-        if(_delReg.size) toPush.regionais = (toPush.regionais||[]).filter(x=>!_delReg.has(String(x.id)));
-        if(_delUsr.size) toPush.users     = (toPush.users||[]).filter(x=>!_delUsr.has(String(x.id)));
-      }
       toPush.deleted = {userIds:[], sellerIds:[], timeIds:[], regionalIds:[]};
 
       // ── SEGURANÇA: inclui o id do usuário logado para validação server-side ──
@@ -8110,10 +8132,7 @@ async function cloudPull(mergeLocal = false){
   setCloudUI('sync','Carregando…');
   try{
     // Timestamp garante URL única: nenhum browser, CDN ou proxy reutiliza cache
-    // username é necessário para o GAS ler as abas SCOPED (ex: joao_vendas)
-    const _pullUsername = currentUser?.username || getSession()?.username || '';
-    const url = cfg.gsUrl + '?action=get&_t=' + Date.now()
-              + (_pullUsername ? '&username=' + encodeURIComponent(_pullUsername) : '');
+    const url = cfg.gsUrl + '?action=get&_t=' + Date.now();
     const res = await fetch(url, {
       cache : 'no-store',
       signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
