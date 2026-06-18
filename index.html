@@ -4046,8 +4046,9 @@ function getScopedSellers(includeInativo=false){
     }
     return sellers;
   }
-  if(u.role==='supervisor'){
-    return sellers.filter(s=>s.timeId===u.timeId);
+  if(u.role==='supervisor' || u.username==='aldenir'){
+    // CORREÇÃO: Se for o usuário aldenir, força o escopo visual e lógico para o time Alpha (2001) do qual ele é supervisor prático
+    return sellers.filter(s=>s.timeId===(u.timeId || 2001));
   }
   return [];
 }
@@ -7079,7 +7080,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzCu-jkzfaOUEpBzVBhONeyFWnAUBPiDwYGdX279tkSJG4-yQTIgTYxxula3bn1oCfh/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxWKfnHqc-Ruhwxo2DlpWyyml1zkhr3XCr1BI2hC_tkWkP_a94mcSUMIbeVhOCFbX5o/exec';
 
 function getCfg(){
   try{
@@ -7101,7 +7102,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzCu-jkzfaOUEpBzVBhONeyFWnAUBPiDwYGdX279tkSJG4-yQTIgTYxxula3bn1oCfh/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxWKfnHqc-Ruhwxo2DlpWyyml1zkhr3XCr1BI2hC_tkWkP_a94mcSUMIbeVhOCFbX5o/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7110,7 +7111,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzCu-jkzfaOUEpBzVBhONeyFWnAUBPiDwYGdX279tkSJG4-yQTIgTYxxula3bn1oCfh/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxWKfnHqc-Ruhwxo2DlpWyyml1zkhr3XCr1BI2hC_tkWkP_a94mcSUMIbeVhOCFbX5o/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -11111,6 +11112,7 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
     await new Promise(r=>setTimeout(r, 1200));
   }
 
+  // CORREÇÃO: Popula as estruturas básicas do DOM primeiro, antes de applySession/goPage
   populateMes();
   populateQESellers();
 
@@ -11130,31 +11132,21 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
     if(currentUser.password) _updatePwCache([currentUser]); // garante cache atualizado
     setSession(currentUser);
     document.getElementById('login-ov').classList.add('hidden');
+
+    // Aplica a sessão agora que os selects e meses já existem com segurança no DOM
     applySession();
-    // FIX: sincroniza com a nuvem ANTES de renderizar o dash
-    // Garante que DB esteja populado e currentUser correto antes de qualquer render
-    {
-      const navEl = document.querySelectorAll('.ni')[0];
-      const _doRender = () => {
-        populateMes();
-        populateQESellers();
-        requestAnimationFrame(() => goPage('dash', navEl));
-      };
-      cloudPull().then(ok => {
-        if(ok){
-          // Atualiza currentUser com dados frescos do Sheets
-          const sess = getSession();
-          const freshUser = sess && (DB.users?.find(u=>u.id===sess.id)
-                         || DB.users?.find(u=>(u.username||'').toLowerCase()===(sess.username||'').toLowerCase()));
-          if(freshUser){
-            currentUser = {...sess, ...freshUser, password: sess.password || freshUser.password};
-            setSession(currentUser);
-            applySession();
-          }
-        }
-        _doRender();
-      }).catch(() => _doRender());
-    }
+
+    const navEl = document.querySelectorAll('.ni')[0];
+    // Renderiza a página imediatamente usando os dados em cache local
+    goPage('dash', navEl);
+
+    // Executa a atualização pesada da nuvem de forma assíncrona em segundo plano sem congelar a tela
+    cloudPull().then(ok => {
+      if(ok){
+        _refreshCurrentUserFromDB();
+        renderAll();
+      }
+    });
   } else {
     document.getElementById('login-ov').classList.remove('hidden');
     if(!getCfg().gsUrl)
