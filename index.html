@@ -4670,13 +4670,14 @@ function renderDash(){
   // Totais respeitam o filtro de vendedor ativo
   const filtStats = sid ? stats.filter(s=>s.id===sid) : stats;
   const tR  = filtStats.reduce((a,s)=>a+s.real,0);
-  const tC  = filtStats.reduce((a,s)=>a+s.meta,0);
+  // tC usa metaFilt (igual ao KPI e donut) para garantir consistência do GAP
+  const tC  = metaFilt > 0 ? metaFilt : filtStats.reduce((a,s)=>a+s.meta,0);
   const tG  = Math.max(0, tC-tR);
   const tP  = tC>0 ? tR/tC : 0;
   const tPr = duPass>0 ? tR/duPass*duTotal : 0;
   const tPctCls=tP>=1?'bg-green':tP>=0.6?'bg-yellow':'bg-red';
   const tGapCls=tG===0?'gap-ok':'gap-neg';
-  tb+=`<tr class="tr-tot"><td>${sid?'TOTAL SELEÇÃO':'TOTAL EQUIPE'}</td><td class="mono" title="Soma dos compromissos">${tC}</td><td class="mono">${tR}</td>
+  tb+=`<tr class="tr-tot"><td>${sid?'TOTAL SELEÇÃO':'TOTAL EQUIPE'}</td><td class="mono" title="Meta do HUB/escopo">${tC}</td><td class="mono">${tR}</td>
     <td><div class="pct-badge-wrap"><span class="pct-badge ${tPctCls}">${(tP*100).toFixed(1)}%</span><div class="pct-slim-bar"><div class="pct-slim-fill ${tPctCls}" style="width:${Math.min(100,tP*100).toFixed(1)}%"></div></div></div></td>
     <td><span class="gap-badge ${tGapCls}">${tG===0?'✓ Meta':'-'+tG}</span></td>
     <td class="mono">${tPr.toFixed(0)}</td>
@@ -7072,7 +7073,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzdZj8JSKUSMl2HFLyL5NclXI5ejI_88IhpxG43GllpUlSNQ2SsmmuMXmFdUmn1ACA/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxzLWchCIqyvqdHSCqjZ905WopRUIASnHrJu9B3RsVxUAMSdCXja_n7svIqaxwPcs1S/exec';
 
 function getCfg(){
   try{
@@ -7094,7 +7095,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzdZj8JSKUSMl2HFLyL5NclXI5ejI_88IhpxG43GllpUlSNQ2SsmmuMXmFdUmn1ACA/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxzLWchCIqyvqdHSCqjZ905WopRUIASnHrJu9B3RsVxUAMSdCXja_n7svIqaxwPcs1S/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7103,7 +7104,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzdZj8JSKUSMl2HFLyL5NclXI5ejI_88IhpxG43GllpUlSNQ2SsmmuMXmFdUmn1ACA/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxzLWchCIqyvqdHSCqjZ905WopRUIASnHrJu9B3RsVxUAMSdCXja_n7svIqaxwPcs1S/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7378,6 +7379,19 @@ async function _runSync() {
       const tablesPayload = dbToTables(toPush);
       if (currentUser && currentUser.id) {
         tablesPayload._requestUserId = currentUser.id;
+      }
+
+      // ── Distribuição automática de vendas do seed ────────────────────────
+      // Admins/gerentes/superAdmins ativam _distribuirVendas: o GAS vai
+      // rotear cada venda para a aba {supervisor}_vendas correta, baseado
+      // no sellerId → timeId → supervisor do time.
+      const _isAdminRole = currentUser && (
+        currentUser.superAdmin === true ||
+        currentUser.superAdmin === 'true' ||
+        ['gerente','regional'].includes(String(currentUser.role||'').toLowerCase())
+      );
+      if (_isAdminRole) {
+        tablesPayload._distribuirVendas = true;
       }
 
       // Serializa para envio — texto puro (não URL-encoded) para evitar
