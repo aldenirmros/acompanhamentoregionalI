@@ -100,6 +100,7 @@ select.sel:focus{border-color:var(--blue);}
 .page{display:none;padding:20px 22px 80px;animation:fi .2s var(--ease);max-width:100%;overflow-x:hidden;box-sizing:border-box;}
 .page.active{display:block;}
 @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes spin360{to{transform:rotate(360deg)}}
 
 /* ── SECTION TITLE ── */
 .sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--tl);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
@@ -1617,6 +1618,11 @@ canvas { display:block; max-width:100%; }
     <div class="tip">Temas & Cores</div>
   </div>
   <div class="sb-spacer"></div>
+  <div class="ni" id="sb-upload-btn" onclick="subirVendasLocais(this)" style="margin-bottom:6px;position:relative" title="Subir vendas locais para a nuvem">
+    <svg id="sb-upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v13"/><polyline points="17 7 12 2 7 7"/><path d="M20 16.5A4.5 4.5 0 0 0 15.5 12H14a8 8 0 1 0-12 6.9"/></svg>
+    <svg id="sb-upload-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;animation:spin360 .9s linear infinite"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+    <div class="tip">Subir Vendas para Nuvem</div>
+  </div>
   <div class="ni" onclick="openBkModal()" style="margin-bottom:6px">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
     <div class="tip">Backup / Restaurar</div>
@@ -7721,6 +7727,64 @@ function _deepMerge(cloud, local) {
 
 // Mantém cloudPush como alias para compatibilidade com chamadas existentes no código
 async function cloudPush() { await _syncEnqueue(); }
+
+// ── Subir Vendas Locais → distribui pelo GAS para cada supervisor ────────────
+async function subirVendasLocais(btn) {
+  const cfg = getCfg();
+  if (!cfg?.gsUrl) {
+    toast('Configure a URL do Apps Script primeiro (ícone de nuvem)', '⚠️');
+    return;
+  }
+
+  // Feedback visual: troca ícone por spinner
+  const icon = document.getElementById('sb-upload-icon');
+  const spin = document.getElementById('sb-upload-spin');
+  if (icon) icon.style.display = 'none';
+  if (spin) spin.style.display = '';
+  if (btn) btn.style.pointerEvents = 'none';
+
+  try {
+    // Monta array plano de todas as vendas do DB local
+    const vendas = [];
+    Object.keys(DB.vendas || {}).forEach(mes => {
+      (DB.vendas[mes] || []).forEach(v => vendas.push({ mes, ...v }));
+    });
+
+    if (!vendas.length) {
+      toast('Nenhuma venda local encontrada', 'ℹ️');
+      return;
+    }
+
+    const payload = {
+      _requestUserId   : String(currentUser?.id || ''),
+      _distribuirVendas: true,
+      vendas           : vendas
+    };
+
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 30000);
+
+    await fetch(cfg.gsUrl, {
+      method : 'POST',
+      mode   : 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body   : JSON.stringify(payload),
+      signal : ctrl.signal
+    });
+    clearTimeout(tid);
+
+    toast(`${vendas.length} vendas enviadas para distribuição ✓`, '☁️');
+    syncLog('Vendas locais enviadas para distribuição — ' + new Date().toLocaleTimeString('pt-BR'));
+
+  } catch(err) {
+    console.error('subirVendasLocais error:', err);
+    toast('Erro ao enviar: ' + err.message, '❌');
+  } finally {
+    if (icon) icon.style.display = '';
+    if (spin) spin.style.display = 'none';
+    if (btn) btn.style.pointerEvents = '';
+  }
+}
 
 // cloudSyncVendas: motor unificado (pull-merge-push) garante que vendas
 // de TODOS os usuários sejam preservadas. Substitui o pull-before-push manual.
