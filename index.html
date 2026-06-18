@@ -7292,7 +7292,11 @@ async function _runSync() {
       let cloudRec = null;
       try {
         // Timestamp na URL: impede que browsers/CDN/proxies retornem cache antigo
-        const res = await fetch(cfg.gsUrl + '?action=get&_t=' + Date.now(), {
+        // username necessário para o GAS ler abas SCOPED (ex: joao_vendas)
+        const _syncUsername = currentUser?.username || getSession()?.username || '';
+        const _syncGetUrl = cfg.gsUrl + '?action=get&_t=' + Date.now()
+                          + (_syncUsername ? '&username=' + encodeURIComponent(_syncUsername) : '');
+        const res = await fetch(_syncGetUrl, {
           cache  : 'no-store',
           signal : AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
         });
@@ -7328,11 +7332,23 @@ async function _runSync() {
       const toSend = cloudRec ? _deepMerge(cloudRec, DB) : JSON.parse(JSON.stringify(DB));
 
       // ── PASSO 3: POST com confirmação de resposta ────────────────────────
-      // Tombstones de entidades (sellers/times/regionais/users) NÃO são gravados
-      // no Sheets — são usados apenas localmente para filtrar o merge desta sessão.
-      // Se forem persistidos no Sheets, acumulam e deletam dados adicionados
-      // manualmente na planilha por outros usuários / pelo administrador.
+      // Tombstones de entidades são aplicados diretamente nas tabelas do payload:
+      // a nuvem recebe os arrays já filtrados (sem as entidades deletadas localmente).
+      // O campo deleted é zerado no payload — os IDs não precisam persistir no Sheets.
       const toPush = JSON.parse(JSON.stringify(toSend));
+      // Aplica tombstones locais sobre o payload: garante que regional/time/user/seller
+      // deletado localmente não seja reenviado à nuvem via merge
+      {
+        const _localDel = DB.deleted || {};
+        const _delSel = new Set((_localDel.sellerIds||[]).map(String));
+        const _delTim = new Set((_localDel.timeIds||[]).map(String).filter(id=>!_PROTECTED_TIME_IDS.has(id)));
+        const _delReg = new Set((_localDel.regionalIds||[]).map(String).filter(id=>!_PROTECTED_REG_IDS.has(id)));
+        const _delUsr = new Set((_localDel.userIds||[]).map(String).filter(id=>!_PROTECTED_USR_IDS.has(id)));
+        if(_delSel.size) toPush.sellers   = (toPush.sellers||[]).filter(x=>!_delSel.has(String(x.id)));
+        if(_delTim.size) toPush.times     = (toPush.times||[]).filter(x=>!_delTim.has(String(x.id)));
+        if(_delReg.size) toPush.regionais = (toPush.regionais||[]).filter(x=>!_delReg.has(String(x.id)));
+        if(_delUsr.size) toPush.users     = (toPush.users||[]).filter(x=>!_delUsr.has(String(x.id)));
+      }
       toPush.deleted = {userIds:[], sellerIds:[], timeIds:[], regionalIds:[]};
 
       // ── SEGURANÇA: inclui o id do usuário logado para validação server-side ──
@@ -8094,7 +8110,10 @@ async function cloudPull(mergeLocal = false){
   setCloudUI('sync','Carregando…');
   try{
     // Timestamp garante URL única: nenhum browser, CDN ou proxy reutiliza cache
-    const url = cfg.gsUrl + '?action=get&_t=' + Date.now();
+    // username é necessário para o GAS ler as abas SCOPED (ex: joao_vendas)
+    const _pullUsername = currentUser?.username || getSession()?.username || '';
+    const url = cfg.gsUrl + '?action=get&_t=' + Date.now()
+              + (_pullUsername ? '&username=' + encodeURIComponent(_pullUsername) : '');
     const res = await fetch(url, {
       cache : 'no-store',
       signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
