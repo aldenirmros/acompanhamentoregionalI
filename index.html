@@ -8229,8 +8229,12 @@ function tablesToDB(tables) {
 // Regra: nuvem é a fonte da verdade. Só conserva vendas locais pendentes.
 async function cloudPull(mergeLocal = false){
   if(window._blockPull && Date.now()-window._blockPull < 300000) return false;
+  // Guard de concorrência: evita múltiplos pulls simultâneos (ex: polling a cada 5s
+  // enquanto GAS ainda responde a chamada anterior — causava "Sem conexão" espúrio)
+  if(window._pullRunning) return false;
+  window._pullRunning = true;
   const cfg = getCfg();
-  if(!cfg.gsUrl) return false;
+  if(!cfg.gsUrl){ window._pullRunning = false; return false; }
   setCloudUI('sync','Carregando…');
   try{
     // Timestamp garante URL única: nenhum browser, CDN ou proxy reutiliza cache
@@ -8433,6 +8437,7 @@ async function cloudPull(mergeLocal = false){
     try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
     setCloudUI('ok','Nuvem ✓');
     syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
+    window._pullRunning = false;
     return true;
 
   } catch(err){
@@ -8449,6 +8454,7 @@ async function cloudPull(mergeLocal = false){
       syncLog('Erro: ' + err.message);
     }
     console.error('[cloudPull]', err.message || err);
+    window._pullRunning = false;
     return false;
   }
 }
@@ -11219,7 +11225,7 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   }
 
   // a) Polling 5s — ativo somente quando a aba está visível
-  setInterval(()=>{ if(!document.hidden) _pull(); }, 5000);
+  setInterval(()=>{ if(!document.hidden) _pull(); }, 30000);
 
   // b) visibilitychange — Chrome, Firefox, Edge, Samsung Browser
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) _pull(); });
