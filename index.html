@@ -4135,9 +4135,8 @@ function getScopedSellers(includeInativo=false){
     }
     return sellers;
   }
-  if(u.role==='supervisor' || u.username==='aldenir'){
-    // CORREÇÃO: Se for o usuário aldenir, força o escopo visual e lógico para o time Alpha (2001) do qual ele é supervisor prático
-    return sellers.filter(s=>s.timeId===(u.timeId || 2001));
+  if(u.role==='supervisor'){
+    return sellers.filter(s=>s.timeId===u.timeId);
   }
   return [];
 }
@@ -4478,13 +4477,9 @@ function onMesChange(){
     renderAll();
     return;
   }
-  // Para Aldenir/superAdmin: restaura view padrão CE06-ALPHA ao trocar mês
-  if(currentUser?.username==='aldenir'||currentUser?.superAdmin){
-    const ce06 = _findCe06(DB, null);
-    lancarHubFilter      = ce06?.id         || null;
-    lancarRegionalFilter = ce06?.regionalId || null;
-    if(ce06) scopeFilter = {regionalId: ce06.regionalId, timeId: ce06.id};
-  } else {
+  // Ao trocar mês, superAdmin/gerente mantém o scopeFilter que já estava ativo
+  // (sem forçar nenhum HUB específico). Supervisor e regional mantêm seu próprio escopo.
+  if(!isGerente(currentUser)){
     lancarHubFilter      = null;
     lancarRegionalFilter = null;
   }
@@ -6020,7 +6015,7 @@ function renderUserList(){
   if(!users.length){ el.innerHTML='<div style="color:var(--tl);text-align:center;padding:20px">Nenhum usuário</div>'; return; }
   const labels={gerente:'Gerente',regional:'Admin Regional',supervisor:'Supervisor'};
   const classes={gerente:'role-gerente',regional:'role-regional',supervisor:'role-supervisor'};
-  const canEdit = isGerente(u) || u?.username==='aldenir';
+  const canEdit = isGerente(u);
   el.innerHTML=`<div class="card"><div style="padding:12px 14px">`+users.map(x=>{
     const isSelf=currentUser?.id===x.id;
     const rg=(DB.regionais||[]).find(r=>r.id===x.regionalId);
@@ -6067,6 +6062,7 @@ function addSeller(){
   const newId = Date.now();
   DB.nextId = newId + 1; // mantém nextId atualizado para compatibilidade
   DB.sellers.push({id:newId,name,cpf,meta,color,timeId,admDate,photo,_ts:newId});
+  DB._structureChanged = true;
   saveDB();
   document.getElementById('v-nome').value='';
   document.getElementById('v-cpf').value='';
@@ -6098,6 +6094,7 @@ function delSellerPermanent(id){
   if(!DB.deleted.sellerIds.includes(String(id))) DB.deleted.sellerIds.push(String(id));
   DB.sellers=DB.sellers.filter(x=>x.id!==id);
   if(selectedSeller===id) selectedSeller=null;
+  DB._structureChanged = true;
   saveDB(); renderSellers(); renderDash(); populateQESellers();
   // Exclusão física no backend
   _backendPhysicalDelete('seller', id);
@@ -6192,6 +6189,7 @@ function addTime(){
   _updatePwCache([newSupTime]);
   _SEED_CREDS[supUser]=supPass;
 
+  DB._structureChanged = true;
   saveDB(); renderSellers();
   document.getElementById('time-nome').value='';
   document.getElementById('time-sup-user').value='';
@@ -6212,6 +6210,7 @@ function delTime(id){
   DB.times=(DB.times||[]).filter(x=>x.id!==id);
   DB.sellers.forEach(s=>{ if(s.timeId===id) s.timeId=null; });
   DB.users=(DB.users||[]).filter(x=>!(x.role==='supervisor'&&x.timeId===id));
+  DB._structureChanged = true;
   saveDB(); renderSellers();
   // Exclusão física no backend
   _backendPhysicalDelete('time', id);
@@ -6259,6 +6258,7 @@ function addRegional(){
   _SEED_CREDS[admUser]=admPass;
   _SEED_CREDS[supUser]=supPass;
 
+  DB._structureChanged = true;
   saveDB(); renderRegionais(); populateDashFilter();
 
   // Limpa form
@@ -6284,6 +6284,7 @@ function delRegional(id){
   DB.sellers.forEach(s=>{ if(tids.includes(s.timeId)) s.timeId=null; });
   DB.users=(DB.users||[]).filter(u=>u.regionalId!==id);
   DB.regionais=(DB.regionais||[]).filter(x=>x.id!==id);
+  DB._structureChanged = true;
   saveDB(); renderRegionais(); populateDashFilter();
   // Exclusão física no backend
   _backendPhysicalDelete('regional', id);
@@ -6660,6 +6661,7 @@ function dbSaveHub(){
   // ── Garante que a senha fica no cache local E no seed em memória ──
   _updatePwCache([newSupUser]);
   _SEED_CREDS[supUser]=supPass;
+  DB._structureChanged = true;
   saveDB();
   ['dba-h-nome','dba-h-sup-user','dba-h-sup-pass','dba-h-sup-nome'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';});
   document.getElementById('add-hub')?.classList.remove('open');
@@ -6688,6 +6690,7 @@ function dbSaveUser(){
   // ── Garante que a senha fica no cache local E no seed em memória ──
   _updatePwCache([newUser]);
   _SEED_CREDS[username]=password;
+  DB._structureChanged = true;
   saveDB();
   ['dba-u-nome','dba-u-user','dba-u-pass'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';});
   document.getElementById('add-user')?.classList.remove('open');
@@ -7227,7 +7230,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyaahCSKhIOFV858Idgg70A63exgv_2aD-l_lrxaXZx5t2hJL5Q3K1b2YVhRge647Z7/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbznRsn6g1twnXVOK69qgW-CaQbfzc2O95F05Awr40A6r4PumepVOpBM9dDBgGrf51Md/exec';
 
 function getCfg(){
   try{
@@ -7249,7 +7252,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyaahCSKhIOFV858Idgg70A63exgv_2aD-l_lrxaXZx5t2hJL5Q3K1b2YVhRge647Z7/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbznRsn6g1twnXVOK69qgW-CaQbfzc2O95F05Awr40A6r4PumepVOpBM9dDBgGrf51Md/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7258,7 +7261,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyaahCSKhIOFV858Idgg70A63exgv_2aD-l_lrxaXZx5t2hJL5Q3K1b2YVhRge647Z7/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbznRsn6g1twnXVOK69qgW-CaQbfzc2O95F05Awr40A6r4PumepVOpBM9dDBgGrf51Md/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7535,6 +7538,20 @@ async function _runSync() {
         tablesPayload._requestUserId = currentUser.id;
       }
 
+      // ── Otimização delta: omite tabelas estruturais quando só vendas mudaram ──
+      // DB._structureChanged é setado como true apenas ao cadastrar/editar
+      // sellers, times, regionais ou usuários. No caso comum (supervisor lançando
+      // uma venda), essas tabelas não mudam, então não é necessário enviá-las.
+      if (!DB._structureChanged) {
+        delete tablesPayload.sellers;
+        delete tablesPayload.times;
+        delete tablesPayload.regionais;
+        delete tablesPayload.users;
+        delete tablesPayload.hubMetas;
+        delete tablesPayload.mValues;
+        delete tablesPayload.sellerMetas;
+      }
+
       // ── Distribuição automática de vendas do seed ────────────────────────
       // Admins/gerentes/superAdmins ativam _distribuirVendas: o GAS vai
       // rotear cada venda para a aba {supervisor}_vendas correta, baseado
@@ -7586,6 +7603,8 @@ async function _runSync() {
         // Limpa tombstones de entidades localmente após push confirmado
         // (já aplicados no merge; não precisam persistir)
         if(DB.deleted) DB.deleted = {userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
+        // Reset da flag de mudança estrutural — próximos syncs voltam ao modo delta
+        DB._structureChanged = false;
         try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
       }
 
@@ -9220,9 +9239,9 @@ function applySession(){
   _psvRestaurarAgendaLocal();
   _psvRestaurarCnpjLocal();
   const u=currentUser;
-  const isSuperUser = u.superAdmin===true || u.username==='aldenir';
+  const isSuperUser = isGerente(u) && u.role !== 'gerente'; // superAdmin visual (badge ⭐)
   const colorMap={gerente:'#7c3aed',regional:'#2563eb',supervisor:'#059669'};
-  const color = isSuperUser ? '#7c3aed' : (u.color||colorMap[u.role]||'#2563eb');
+  const color = isGerente(u) ? '#7c3aed' : (u.color||colorMap[u.role]||'#2563eb');
   const label = u.nome||u.username;
   let roleLabel;
   if(isGerente(u) && u.role!=='gerente'){
@@ -9242,7 +9261,7 @@ function applySession(){
   const avatarEl = document.getElementById('ub-avatar');
   const nameEl   = document.getElementById('ub-name');
   const roleEl   = document.getElementById('ub-role');
-  if(avatarEl){ avatarEl.style.background = isSuperUser ? 'linear-gradient(135deg,#7c3aed,#2563eb)' : color; avatarEl.textContent = label[0].toUpperCase(); }
+  if(avatarEl){ avatarEl.style.background = isGerente(u) ? 'linear-gradient(135deg,#7c3aed,#2563eb)' : color; avatarEl.textContent = label[0].toUpperCase(); }
   if(nameEl) nameEl.textContent = label;
   if(roleEl){
     if(isSuperUser){
@@ -9252,7 +9271,7 @@ function applySession(){
     }
   }
   if(badge){
-    if(isSuperUser) badge.classList.add('super-admin');
+    if(isGerente(u)) badge.classList.add('super-admin');
     else badge.classList.remove('super-admin');
     badge.style.display='flex';
   }
@@ -9261,32 +9280,26 @@ function applySession(){
   const navRegionais=document.getElementById('nav-regionais');
   if(navRegionais) navRegionais.style.display=isGerente(u)?'':'none';
   const navDb=document.getElementById('nav-db');
-  if(navDb) navDb.style.display=(isGerente(u)||u?.superAdmin)?'':'none';
+  if(navDb) navDb.style.display=isGerente(u)?'':'none';
 
-  // Botão "Criar Usuário" exclusivo para Aldenir
+  // Botão "Criar Usuário" — superAdmin e gerente
   const btnAldenir = document.getElementById('btn-criar-usuario');
-  if(btnAldenir) btnAldenir.style.display = isSuperUser ? 'inline-flex' : 'none';
+  if(btnAldenir) btnAldenir.style.display = isGerente(u) ? 'inline-flex' : 'none';
 
-  // Botão "Usuários" para Aldenir e Gerente
+  // Botão "Usuários" — superAdmin e gerente
   const btnVer = document.getElementById('btn-ver-usuarios');
-  if(btnVer) btnVer.style.display = (isGerente(u)) ? 'inline-flex' : 'none';
+  if(btnVer) btnVer.style.display = isGerente(u) ? 'inline-flex' : 'none';
 
-  // Botão "Reset de Cache" para gerente e admin
+  // Botão "Reset de Cache" — superAdmin e gerente
   const btnReset = document.getElementById('btn-reset-cache');
-  if(btnReset) btnReset.style.display = (isGerente(u)||isSuperUser) ? 'inline-flex' : 'none';
+  if(btnReset) btnReset.style.display = isGerente(u) ? 'inline-flex' : 'none';
 
   // ── Escopo inicial ──
-  if(isSuperUser){
-    // Aldenir: view inicial sempre = CE06 - ALPHA, mas pode ver tudo
-    const ce06 = _findCe06(DB, null);
-    if(ce06){
-      scopeFilter         = {regionalId: ce06.regionalId, timeId: ce06.id};
-      lancarHubFilter     = ce06.id;        // Lançar → CE06 por padrão
-      lancarRegionalFilter= ce06.regionalId;// Lançar → Regional do CE06
-    } else {
-      scopeFilter = {regionalId: null, timeId: null};
-      lancarHubFilter = null; lancarRegionalFilter = null;
-    }
+  if(isGerente(u)){
+    // Gerente / superAdmin: sem restrição de escopo inicial — vê tudo
+    scopeFilter         = {regionalId: null, timeId: null};
+    lancarHubFilter     = null;
+    lancarRegionalFilter= null;
   } else if(u.role==='regional' && !isGerente(u)){
     scopeFilter         = {regionalId: u.regionalId||null, timeId: null};
     lancarHubFilter     = null;
@@ -10761,6 +10774,7 @@ function deleteUser(id){
   if(!DB.deleted) DB.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
   if(!DB.deleted.userIds.includes(String(id))) DB.deleted.userIds.push(String(id));
   DB.users=DB.users.filter(x=>x.id!==id);
+  DB._structureChanged = true;
   saveDB(); renderUserList();
   toast(`Login @${u.username} removido`,'🗑️');
 }
@@ -11064,6 +11078,7 @@ function saveEditSeller(){
   s.color=document.getElementById('es-cor').value||s.color;
   if(_editSellerPhoto) s.photo=_editSellerPhoto;
   s._ts = Date.now(); // marca timestamp de alteração para o merge (local vence cloud em empate)
+  DB._structureChanged = true;
   saveDB(); renderSellers(); renderDash(); populateQESellers();
   closeEditSellerModal();
   toast(`✅ ${nome} atualizado!`);
@@ -11147,6 +11162,7 @@ function saveEditUser(){
   if(password && password.length>=4) x.password = password;
   if(_newUserPhoto) x.photo = _newUserPhoto;
 
+  DB._structureChanged = true;
   saveDB();
   closeEditUserModal();
   renderUserList();
