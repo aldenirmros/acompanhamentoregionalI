@@ -7091,7 +7091,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxp3448fjOzwt7_fVWogvKPzpS0srhM8dw7Az8PIRk7qa1J3orcqae_y0WEsUwpuneL/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyaahCSKhIOFV858Idgg70A63exgv_2aD-l_lrxaXZx5t2hJL5Q3K1b2YVhRge647Z7/exec';
 
 function getCfg(){
   try{
@@ -7113,7 +7113,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxp3448fjOzwt7_fVWogvKPzpS0srhM8dw7Az8PIRk7qa1J3orcqae_y0WEsUwpuneL/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyaahCSKhIOFV858Idgg70A63exgv_2aD-l_lrxaXZx5t2hJL5Q3K1b2YVhRge647Z7/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7122,7 +7122,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxp3448fjOzwt7_fVWogvKPzpS0srhM8dw7Az8PIRk7qa1J3orcqae_y0WEsUwpuneL/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyaahCSKhIOFV858Idgg70A63exgv_2aD-l_lrxaXZx5t2hJL5Q3K1b2YVhRge647Z7/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7346,7 +7346,7 @@ async function _runSync() {
         // Timestamp na URL: impede que browsers/CDN/proxies retornem cache antigo
         const _userId   = currentUser?.id || '';
         const _username = currentUser?.username || cfg.username || '';
-        const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&_t=' + Date.now(), {
+        const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor&_t=' + Date.now(), {
           cache  : 'no-store',
           signal : AbortSignal.timeout ? AbortSignal.timeout(35000) : undefined
         });
@@ -8240,6 +8240,7 @@ async function cloudPull(mergeLocal = false){
       + '?action=get'
       + '&username=' + encodeURIComponent(_pullUser)
       + '&userId='   + encodeURIComponent(_pullUid)
+      + '&tables='   + 'sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor'
       + '&_t='       + Date.now();
     const res = await fetch(url, {
       cache : 'no-store',
