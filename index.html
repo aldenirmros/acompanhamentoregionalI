@@ -62,6 +62,52 @@
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{overflow-x:hidden;}
+
+/* ══ BARRA DE CARREGAMENTO GLOBAL (topo) ══ */
+#global-loading-bar{
+  position:fixed;top:0;left:0;right:0;height:3px;z-index:9999;
+  pointer-events:none;opacity:0;transition:opacity .2s;
+}
+#global-loading-bar.active{opacity:1;}
+#global-loading-bar-fill{
+  height:100%;width:0%;
+  background:linear-gradient(90deg,var(--blue),var(--cyan,#06b6d4),var(--blue-l,#3b82f6));
+  background-size:200% 100%;
+  border-radius:0 99px 99px 0;
+  box-shadow:0 0 8px rgba(37,99,235,.6),0 0 18px rgba(37,99,235,.3);
+  transition:width .3s cubic-bezier(.4,0,.2,1);
+  animation:_glb-shimmer 1.4s linear infinite;
+}
+@keyframes _glb-shimmer{
+  0%{background-position:100% 0}
+  100%{background-position:-100% 0}
+}
+/* Toast de status de carregamento */
+#global-loading-toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(12px);
+  background:rgba(15,23,42,.92);color:#fff;
+  font-family:var(--font);font-size:12px;font-weight:600;
+  padding:8px 18px 8px 14px;border-radius:99px;
+  display:flex;align-items:center;gap:8px;
+  box-shadow:0 4px 20px rgba(0,0,0,.35);
+  opacity:0;pointer-events:none;
+  transition:opacity .22s,transform .22s;
+  z-index:9998;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.08);
+  backdrop-filter:blur(8px);
+}
+#global-loading-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+#global-loading-toast .glt-spinner{
+  width:13px;height:13px;border-radius:50%;
+  border:2px solid rgba(255,255,255,.2);
+  border-top-color:#fff;
+  animation:spin360 .75s linear infinite;
+  flex-shrink:0;
+}
+#global-loading-toast .glt-pct{
+  font-family:var(--mono,'monospace');font-size:11px;
+  color:rgba(255,255,255,.55);min-width:30px;text-align:right;
+}
 body{font-family:var(--font);background:var(--bg);color:var(--td);display:flex;min-height:100vh;font-size:14px;overflow-x:hidden;width:100%;}
 
 /* ── SIDEBAR ── */
@@ -1524,19 +1570,45 @@ canvas { display:block; max-width:100%; }
 
 <!-- ══ LOGIN ══ -->
 <!-- ══ TELA DE CARREGAMENTO ══ -->
-<div id="loading-ov" style="position:fixed;inset:0;background:linear-gradient(135deg,#0b0d17,#0f172a,#1e1b4b);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px">
-  <div style="width:52px;height:52px;background:linear-gradient(135deg,#2563eb,#06b6d4);border-radius:14px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(37,99,235,.5)">
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+<!-- ══ BARRA DE CARREGAMENTO GLOBAL ══ -->
+<div id="global-loading-bar">
+  <div id="global-loading-bar-fill"></div>
+</div>
+<div id="global-loading-toast">
+  <div class="glt-spinner"></div>
+  <span id="glt-msg">Carregando dados…</span>
+  <span class="glt-pct" id="glt-pct"></span>
+</div>
+
+<div id="loading-ov" style="position:fixed;inset:0;background:linear-gradient(135deg,#0b0d17,#0f172a,#1e1b4b);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0">
+  <style>
+    @keyframes _lo-glow{0%,100%{box-shadow:0 0 30px rgba(37,99,235,.5)}50%{box-shadow:0 0 50px rgba(6,182,212,.7)}}
+    @keyframes _lo-fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    #loading-ov > *{animation:_lo-fade .4s ease both}
+    #loading-ov > *:nth-child(2){animation-delay:.08s}
+    #loading-ov > *:nth-child(3){animation-delay:.16s}
+    #loading-ov > *:nth-child(4){animation-delay:.22s}
+    #_lo-bar-fill{transition:width .35s cubic-bezier(.4,0,.2,1)}
+  </style>
+  <!-- Logo -->
+  <div style="width:58px;height:58px;background:linear-gradient(135deg,#2563eb,#06b6d4);border-radius:16px;display:flex;align-items:center;justify-content:center;animation:_lo-glow 2s ease infinite;margin-bottom:24px">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
   </div>
-  <div style="text-align:center">
-    <div style="color:#fff;font-weight:800;font-size:18px;margin-bottom:6px">Acompanhamento de Vendas</div>
-    <div id="loading-msg" style="color:rgba(255,255,255,.5);font-size:13px">Conectando ao banco de dados…</div>
+  <!-- Título + mensagem -->
+  <div style="text-align:center;margin-bottom:32px">
+    <div style="color:#fff;font-weight:800;font-size:20px;letter-spacing:-.3px;margin-bottom:8px">Acompanhamento de Vendas</div>
+    <div id="loading-msg" style="color:rgba(255,255,255,.5);font-size:13px;min-height:18px;transition:opacity .2s">Conectando ao banco de dados…</div>
   </div>
-  <!-- Spinner -->
-  <div style="width:36px;height:36px;border:3px solid rgba(255,255,255,.1);border-top-color:#2563eb;border-radius:50%;animation:spin .8s linear infinite"></div>
-  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-  <!-- Botão de retry (aparece se demorar) -->
-  <button id="loading-retry" onclick="location.reload()" style="display:none;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:8px 20px;font-family:var(--font);font-size:13px;cursor:pointer;margin-top:4px">
+  <!-- Barra de progresso -->
+  <div style="width:260px;margin-bottom:12px">
+    <div style="width:260px;height:4px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden">
+      <div id="_lo-bar-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#2563eb,#06b6d4);border-radius:99px"></div>
+    </div>
+  </div>
+  <!-- Percentual -->
+  <div id="_lo-pct" style="color:rgba(255,255,255,.35);font-size:11px;font-weight:700;font-family:var(--mono,'monospace');letter-spacing:.5px;margin-bottom:20px">0%</div>
+  <!-- Botão retry -->
+  <button id="loading-retry" onclick="location.reload()" style="display:none;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:9px 22px;font-family:var(--font);font-size:13px;cursor:pointer;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.15)'" onmouseout="this.style.background='rgba(255,255,255,.08)'">
     🔄 Tentar novamente
   </button>
 </div>
@@ -4414,7 +4486,7 @@ function onMesChange(){
   renderAll();
 }
 
-function goPage(name, el){
+function goPage(name, el, _dataAlreadyLoaded){
   const u=currentUser;
   // Access control
   if(name==='regionais' && !isGerente()) return;
@@ -4429,30 +4501,77 @@ function goPage(name, el){
   const tbSub=document.getElementById('tb-sub'); if(tbSub) tbSub.textContent=lb[name]||'';
   if(name==='dash'){
     // FIX: se DB ainda não tem vendas (DB vazio / antes do cloudPull terminar),
-    // aguarda o pull antes de renderizar para evitar dash em branco
-    const _hasData = currentUser && (DB.sellers?.length > 0);
+    // aguarda o pull antes de renderizar para evitar dash em branco.
+    // _dataAlreadyLoaded=true pula essa verificação (pós-login onde pull já terminou)
+    const _hasData = _dataAlreadyLoaded || (currentUser && (DB.sellers?.length > 0));
     const _renderDashSafe = () => {
       renderDash();
+      // Aguarda 2 frames + 150ms para garantir que o browser calculou as dimensões dos canvases
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
-        if(typeof chartDonut!=='undefined'&&chartDonut){try{chartDonut.resize();}catch(e){}}
-        // bar é HTML puro, sem resize necessário
-        if(typeof chartLine !=='undefined'&&chartLine ){try{chartLine.resize(); }catch(e){}}
+        setTimeout(()=>{
+          if(typeof chartDonut!=='undefined'&&chartDonut){try{chartDonut.resize();}catch(e){}}
+          if(typeof chartLine !=='undefined'&&chartLine ){try{chartLine.resize(); }catch(e){}}
+        }, 150);
       }));
     };
     if(!_hasData && typeof cloudPull === 'function'){
-      // Mostra estado de carregando temporariamente
+      // Mostra barra de progresso interna enquanto aguarda o pull
       const dashPage = document.getElementById('page-dash');
       if(dashPage && !dashPage.querySelector('._dash-loading')){
         const _ld = document.createElement('div');
         _ld.className = '_dash-loading';
-        _ld.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--tl);z-index:5;background:var(--bg)';
-        _ld.textContent = 'Carregando dados...';
+        _ld.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:5;background:var(--bg)';
+        _ld.innerHTML = `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:260px">
+            <div style="width:44px;height:44px;background:linear-gradient(135deg,var(--blue),var(--cyan,#06b6d4));border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(37,99,235,.25)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:14px;font-weight:700;color:var(--td);margin-bottom:4px">Carregando dados…</div>
+              <div id="_dash-ld-msg" style="font-size:12px;color:var(--tl);min-height:16px;transition:opacity .2s">Conectando ao servidor…</div>
+            </div>
+            <div style="width:100%">
+              <div style="width:100%;height:4px;background:var(--border);border-radius:99px;overflow:hidden">
+                <div id="_dash-ld-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--blue),var(--cyan,#06b6d4));border-radius:99px;transition:width .35s cubic-bezier(.4,0,.2,1)"></div>
+              </div>
+            </div>
+            <div id="_dash-ld-pct" style="font-size:11px;font-weight:700;color:var(--tl);font-family:var(--mono,'monospace');letter-spacing:.5px">0%</div>
+          </div>`;
         dashPage.style.position = 'relative';
         dashPage.appendChild(_ld);
+
+        // Anima a barra suavemente até um alvo
+        let _dt = 0, _da = 0, _draf = null;
+        function _dProgress(pct){
+          _dt = Math.min(100, Math.max(_dt, pct));
+          if(_draf) return;
+          function _s(){
+            const diff = _dt - _da;
+            if(diff < 0.2){ _da = _dt; _draf = null; }
+            else { _da += diff * 0.12; _draf = requestAnimationFrame(_s); }
+            const b = document.getElementById('_dash-ld-bar');
+            const p = document.getElementById('_dash-ld-pct');
+            if(b) b.style.width = _da.toFixed(1)+'%';
+            if(p) p.textContent = Math.round(_da)+'%';
+          }
+          _draf = requestAnimationFrame(_s);
+        }
+        function _dMsg(t){
+          const el = document.getElementById('_dash-ld-msg');
+          if(!el) return;
+          el.style.opacity='0';
+          setTimeout(()=>{ el.textContent=t; el.style.opacity='1'; },150);
+        }
+
+        _dProgress(8);
+        setTimeout(()=>{ _dMsg('Buscando dados na nuvem…'); _dProgress(30); }, 300);
+        setTimeout(()=>{ _dMsg('Processando registros…');   _dProgress(60); }, 1200);
+        setTimeout(()=>{ _dMsg('Quase lá…');                _dProgress(80); }, 2500);
+
         cloudPull().then(()=>{
-          populateMes(); populateQESellers();
-          _ld.remove();
-          _renderDashSafe();
+          _dMsg('Pronto!');
+          _dProgress(100);
+          setTimeout(()=>{ populateMes(); populateQESellers(); _ld.remove(); _renderDashSafe(); }, 400);
         }).catch(()=>{ _ld.remove(); _renderDashSafe(); });
       } else {
         _renderDashSafe();
@@ -5051,7 +5170,8 @@ function renderRankingSemanal() {
 }
 
 function buildDonut(real,gap){
-  const ctx=document.getElementById('ch-donut').getContext('2d');
+  const canvasEl=document.getElementById('ch-donut');
+  const ctx=canvasEl.getContext('2d');
   if(chartDonut) chartDonut.destroy();
   chartDonut=new Chart(ctx,{type:'doughnut',data:{datasets:[{data:[real,Math.max(0,gap)],backgroundColor:['#059669','#e2e8f0'],borderWidth:0,hoverOffset:6,borderRadius:4}]},
     options:{cutout:'72%',plugins:{legend:{display:false},tooltip:{
@@ -5062,6 +5182,10 @@ function buildDonut(real,gap){
       callbacks:{label:c=>{const l=['Realizado','Restante'];return ` ${l[c.dataIndex]}: ${c.raw}`;}}
     }}
   ,animation:{animateRotate:true,duration:900}}});
+  // Força resize se o canvas ainda não tinha dimensões calculadas (pós-login)
+  if(canvasEl.offsetWidth === 0){
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ try{chartDonut.resize();}catch(e){} }));
+  }
 }
 
 // ── Dados do buildBar salvos para maximize ──
@@ -5306,7 +5430,8 @@ function makeLineConfig(labels, dataReal, pointColors, sellersPerDay){
 }
 
 function buildLine(ymKey,y,m,sid){
-  const ctx=document.getElementById('ch-line').getContext('2d');
+  const canvasEl=document.getElementById('ch-line');
+  const ctx=canvasEl.getContext('2d');
   if(chartLine) chartLine.destroy();
   const dias=getDiasComSabado(y,m), t=today();
   const labels=dias.map(d=>`${d.getDate()}/${m+1}`);
@@ -5334,6 +5459,10 @@ function buildLine(ymKey,y,m,sid){
   const pointColors=dias.map((d,i)=>d.getDay()===6?'#94a3b8':linePointColor(dataReal[i],maxVal));
   _lineParams={labels,dataReal,pointColors,sellersPerDay};
   chartLine=new Chart(ctx,makeLineConfig(labels,dataReal,pointColors,sellersPerDay));
+  // Força resize se o canvas ainda não tinha dimensões calculadas (pós-login)
+  if(canvasEl.offsetWidth === 0){
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ try{chartLine.resize();}catch(e){} }));
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -9041,23 +9170,21 @@ function doLogin(){
         applySession();
       }
     }
-    // FIX: popula seletores ANTES de navegar para o dash
-    // Garante que currentUser e DB estejam prontos antes de qualquer render
+    // Popula seletores ANTES de navegar
     populateMes();
     populateQESellers();
-    // Usa requestAnimationFrame para garantir layout finalizado antes dos graficos
-    requestAnimationFrame(()=>{
-      goPage('dash', navEl);
+    // Pequeno delay para o browser computar o layout dos canvases antes dos gráficos
+    setTimeout(()=>{
+      goPage('dash', navEl, true);
       if(loginBtn){ loginBtn.textContent='Entrar'; loginBtn.disabled=false; }
-    });
+    }, 80);
   }).catch(()=>{
-    // Mesmo sem dados da nuvem, renderiza com DB local
     populateMes();
     populateQESellers();
-    requestAnimationFrame(()=>{
-      goPage('dash', navEl);
+    setTimeout(()=>{
+      goPage('dash', navEl, true);
       if(loginBtn){ loginBtn.textContent='Entrar'; loginBtn.disabled=false; }
-    });
+    }, 80);
   });
 }
 
@@ -11105,17 +11232,39 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
 }); // preenche login se "lembrar" estava ativo
 
 (async () => {
-  const setMsg     = t => { const e=document.getElementById('loading-msg');     if(e) e.textContent=t; };
-  const hideLoading= ()=> { const e=document.getElementById('loading-ov');      if(e) e.style.display='none'; };
-  const showRetry  = ()=> { const e=document.getElementById('loading-retry');   if(e) e.style.display=''; };
+  const setMsg     = t => { const e=document.getElementById('loading-msg'); if(e){ e.style.opacity='0'; setTimeout(()=>{ e.textContent=t; e.style.opacity='1'; },150); } };
+  const hideLoading= ()=> { const ov=document.getElementById('loading-ov'); if(ov){ ov.style.transition='opacity .35s'; ov.style.opacity='0'; setTimeout(()=>ov.style.display='none',360); } };
+  const showRetry  = ()=> { const e=document.getElementById('loading-retry'); if(e) e.style.display=''; };
+
+  // Barra de progresso — avança suavemente até um alvo
+  let _loTarget = 0, _loActual = 0, _loRaf = null;
+  function _loSetProgress(pct){
+    _loTarget = Math.min(100, Math.max(_loTarget, pct));
+    if(_loRaf) return;
+    function _step(){
+      const diff = _loTarget - _loActual;
+      if(diff < 0.2){ _loActual = _loTarget; _loRaf = null; }
+      else { _loActual += diff * 0.12; _loRaf = requestAnimationFrame(_step); }
+      const bar = document.getElementById('_lo-bar-fill');
+      const pctEl = document.getElementById('_lo-pct');
+      if(bar) bar.style.width = _loActual.toFixed(1) + '%';
+      if(pctEl) pctEl.textContent = Math.round(_loActual) + '%';
+    }
+    _loRaf = requestAnimationFrame(_step);
+  }
 
   // ── PASSO 1: Sincroniza com a nuvem ANTES de mostrar o login ─────────────
+  _loSetProgress(5);
   setMsg('Conectando ao Google Sheets…');
+  await new Promise(r=>setTimeout(r,200)); // deixa animação inicial aparecer
+
   let ok = false;
   for(let t=1; t<=5; t++){
     setMsg(t===1 ? 'Carregando banco de dados…' : `Tentando novamente… (${t}/5)`);
+    // Progresso estimado por tentativa: 10→55→70→80→88
+    _loSetProgress([10,55,70,80,88][t-1] || 88);
     ok = await cloudPull();
-    if(ok) break;
+    if(ok){ _loSetProgress(95); break; }
     if(t < 5) await new Promise(r=>setTimeout(r, t * 1500));
   }
 
@@ -11123,6 +11272,7 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
     // Fallback local apenas como último recurso
     setMsg('⚠️ Sem conexão. Usando cache local…');
     showRetry();
+    _loSetProgress(70);
     try{
       const s = localStorage.getItem('bi_v5');
       if(s){ const d=JSON.parse(s); if(d?.sellers){ DB=d; migrateToDefaultRegional(DB); } }
@@ -11139,6 +11289,10 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   _ensureSeedUsersInDB();
   const sess   = getSession();
   const dbUser = sess ? DB.users?.find(u=>u.id===sess.id) : null;
+  // Fecha tela de loading com 100%
+  setMsg('Pronto!');
+  _loSetProgress(100);
+  await new Promise(r=>setTimeout(r,350));
   hideLoading();
 
   if(sess && dbUser){
@@ -11155,16 +11309,8 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
     applySession();
 
     const navEl = document.querySelectorAll('.ni')[0];
-    // Renderiza a página imediatamente usando os dados em cache local
-    goPage('dash', navEl);
-
-    // Executa a atualização pesada da nuvem de forma assíncrona em segundo plano sem congelar a tela
-    cloudPull().then(ok => {
-      if(ok){
-        _refreshCurrentUserFromDB();
-        renderAll();
-      }
-    });
+    // Dados já carregados pelo cloudPull acima — renderiza com delay para layout dos canvases
+    setTimeout(()=>{ goPage('dash', navEl, true); }, 80);
   } else {
     document.getElementById('login-ov').classList.remove('hidden');
     if(!getCfg().gsUrl)
@@ -13937,6 +14083,130 @@ function _psvPFsChg() {
     }
   };
 
+})();
+</script>
+
+<!-- ══ CONTROLADOR DA BARRA DE CARREGAMENTO GLOBAL ══ -->
+<script>
+(function(){
+  'use strict';
+
+  // Estado interno
+  let _active  = false;
+  let _pct     = 0;
+  let _target  = 0;
+  let _rafId   = null;
+  let _toastT  = null;
+  let _hideT   = null;
+
+  const bar    = document.getElementById('global-loading-bar');
+  const fill   = document.getElementById('global-loading-bar-fill');
+  const toast  = document.getElementById('global-loading-toast');
+  const gltMsg = document.getElementById('glt-msg');
+  const gltPct = document.getElementById('glt-pct');
+
+  function _setFill(v){
+    if(!fill) return;
+    fill.style.width = v.toFixed(1) + '%';
+  }
+
+  function _animate(){
+    const diff = _target - _pct;
+    if(diff < 0.15){ _pct = _target; _rafId = null; }
+    else { _pct += diff * 0.10; _rafId = requestAnimationFrame(_animate); }
+    _setFill(_pct);
+    if(gltPct) gltPct.textContent = Math.round(_pct) + '%';
+  }
+
+  function _moveTo(pct){
+    _target = Math.min(99, Math.max(_pct, pct));
+    if(!_rafId) _rafId = requestAnimationFrame(_animate);
+  }
+
+  // API pública
+  window.GlobalLoader = {
+    start: function(msg){
+      if(_hideT){ clearTimeout(_hideT); _hideT = null; }
+      _active = true;
+      _pct = 0; _target = 0;
+      if(bar)  { bar.classList.add('active'); }
+      if(fill) { fill.style.transition = 'none'; _setFill(0);
+                 requestAnimationFrame(()=>{ fill.style.transition = 'width .3s cubic-bezier(.4,0,.2,1)'; }); }
+      _moveTo(15);
+      if(gltMsg) gltMsg.textContent = msg || 'Carregando dados…';
+      if(gltPct) gltPct.textContent = '0%';
+      // Mostra toast após 400ms (evita flash em pulls rápidos)
+      clearTimeout(_toastT);
+      _toastT = setTimeout(()=>{ if(_active && toast) toast.classList.add('show'); }, 400);
+    },
+
+    progress: function(pct, msg){
+      if(!_active) return;
+      _moveTo(pct);
+      if(msg && gltMsg) gltMsg.textContent = msg;
+    },
+
+    done: function(ok){
+      _active = false;
+      clearTimeout(_toastT);
+      if(toast) toast.classList.remove('show');
+      // Leva a barra a 100% e então a esconde
+      _target = 100;
+      _pct = _pct < 80 ? 80 : _pct; // pula para pelo menos 80% antes de completar
+      if(_rafId){ cancelAnimationFrame(_rafId); _rafId = null; }
+      _setFill(100);
+      if(gltPct) gltPct.textContent = '100%';
+      _hideT = setTimeout(()=>{
+        if(bar) bar.classList.remove('active');
+        setTimeout(()=>{ _setFill(0); _pct = 0; _target = 0; }, 200);
+      }, 350);
+    }
+  };
+
+  // ─── Intercepta cloudPull para mostrar barra automaticamente ───
+  // Aguarda DOM+scripts carregarem e então wrapa a função
+  function _wrapCloudPull(){
+    if(typeof window.cloudPull !== 'function') return;
+    const _orig = window.cloudPull;
+    window.cloudPull = async function(mergeLocal){
+      window.GlobalLoader.start('Conectando ao servidor…');
+      // Simula progressão enquanto aguarda a resposta
+      const _steps = [
+        { pct:25, msg:'Buscando dados na nuvem…',   delay:600  },
+        { pct:50, msg:'Processando registros…',      delay:1500 },
+        { pct:75, msg:'Sincronizando banco local…',  delay:2800 },
+        { pct:88, msg:'Finalizando…',                delay:4500 },
+      ];
+      const _timers = _steps.map(s =>
+        setTimeout(()=> window.GlobalLoader.progress(s.pct, s.msg), s.delay)
+      );
+      let result;
+      try {
+        result = await _orig.call(this, mergeLocal);
+        window.GlobalLoader.done(result);
+      } catch(e) {
+        window.GlobalLoader.done(false);
+        throw e;
+      } finally {
+        _timers.forEach(clearTimeout);
+      }
+      return result;
+    };
+  }
+
+  // Tenta imediatamente; se cloudPull ainda não existir, observa com poll curto
+  if(typeof window.cloudPull === 'function'){
+    _wrapCloudPull();
+  } else {
+    let _attempts = 0;
+    const _poll = setInterval(()=>{
+      _attempts++;
+      if(typeof window.cloudPull === 'function'){
+        clearInterval(_poll);
+        _wrapCloudPull();
+      } else if(_attempts > 60){ clearInterval(_poll); }
+    }, 150);
+  }
 })();
 </script>
 
