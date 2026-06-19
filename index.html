@@ -7792,6 +7792,7 @@ function _deepMerge(cloud, local) {
   // ── ativacaoManual: merge de 3 níveis {ymKey: {userId: val}} — union de usuários ──
   // Garante que os dados de diferentes usuários sejam somados, não substituídos
   {
+    const _myUserId = String(currentUser?.id || 'default');
     function mergeAtivacao3Level(cld, loc) {
       const out = JSON.parse(JSON.stringify(cld||{}));
       Object.keys(loc||{}).forEach(ymKey => {
@@ -7800,12 +7801,12 @@ function _deepMerge(cloud, local) {
           if(!out[ymKey] || typeof out[ymKey] !== 'object') out[ymKey] = {};
           // Itera pelos userIds do local e mescla
           Object.keys(locEntry).forEach(uid => {
-            if(cloudIsNewer){
-              // Cloud vence: só usa local se cloud não tiver o userId
-              if(out[ymKey][uid] === undefined) out[ymKey][uid] = locEntry[uid];
-            } else {
-              // Local vence: sobrescreve o userId do usuário logado
+            // O userId do usuário atual SEMPRE vence (ele acabou de editar).
+            // Para dados de outros usuários, cloud vence se for mais recente.
+            if(uid === _myUserId || uid === 'default' || !cloudIsNewer){
               out[ymKey][uid] = locEntry[uid];
+            } else {
+              if(out[ymKey][uid] === undefined) out[ymKey][uid] = locEntry[uid];
             }
           });
         } else if(locEntry != null) {
@@ -8031,11 +8032,14 @@ function dbToTables(db) {
       diasConfig.push({ ymKey, userId, chave: 'totalFeriados', val: cfg.totalFeriados });
   });
 
-  // ── ativacaoManual: achata {ymKey: {sellerId: val}} ──
+  // ── ativacaoManual: achata {ymKey: {userId: val}} ──
+  // ATENÇÃO: o campo é chamado 'sellerId' na aba do Sheets (coluna legada),
+  // mas armazena o userId do supervisor — mantemos 'sellerId' como nome da coluna
+  // para compatibilidade com o GAS, mas o valor é sempre o currentUser.id.
   const ativacaoManual = [];
   Object.keys(db.ativacaoManual || {}).forEach(ymKey => {
-    Object.keys(db.ativacaoManual[ymKey] || {}).forEach(sellerId => {
-      ativacaoManual.push({ ymKey, sellerId, val: db.ativacaoManual[ymKey][sellerId] });
+    Object.keys(db.ativacaoManual[ymKey] || {}).forEach(userId => {
+      ativacaoManual.push({ ymKey, sellerId: userId, val: db.ativacaoManual[ymKey][userId] });
     });
   });
 
@@ -8236,12 +8240,14 @@ function tablesToDB(tables) {
     }
   });
 
-  // ── ativacaoManual: reconstrói {ymKey: {sellerId: val}} ──
+  // ── ativacaoManual: reconstrói {ymKey: {userId: val}} ──
+  // A coluna no Sheets chama-se 'sellerId' por legado, mas guarda userId do supervisor.
   db.ativacaoManual = {};
   (tables.ativacaoManual || []).forEach(({ ymKey, sellerId, val }) => {
     if (!ymKey) return;
+    const userId = String(sellerId || 'default'); // 'sellerId' da aba = userId do supervisor
     if (!db.ativacaoManual[ymKey]) db.ativacaoManual[ymKey] = {};
-    db.ativacaoManual[ymKey][sellerId] = Number(val);
+    db.ativacaoManual[ymKey][userId] = Number(val);
   });
 
   // ── ativacaoManualOv: reconstrói {ymKey: {userId: val}} ──
