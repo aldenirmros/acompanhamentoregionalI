@@ -7348,7 +7348,7 @@ async function _runSync() {
         const _username = currentUser?.username || cfg.username || '';
         const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&_t=' + Date.now(), {
           cache  : 'no-store',
-          signal : AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined
+          signal : AbortSignal.timeout ? AbortSignal.timeout(35000) : undefined
         });
         if (res.ok) {
           const raw = await res.json().catch(()=>null);
@@ -7419,7 +7419,7 @@ async function _runSync() {
       let postOk = false;
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(()=>ctrl.abort(), 25000);
+        const tid  = setTimeout(()=>ctrl.abort(), 50000);
         // mode:'no-cors' evita pre-flight CORS ao enviar para Google Apps Script.
         // Com no-cors a resposta é opaca (não é possível ler body/status):
         // se o fetch não lançar exceção, assume-se que o POST chegou ao GAS.
@@ -8244,7 +8244,7 @@ async function cloudPull(mergeLocal = false){
     const res = await fetch(url, {
       cache : 'no-store',
       signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
-              ? AbortSignal.timeout(15000) : undefined
+              ? AbortSignal.timeout(35000) : undefined
     });
     if(!res.ok) throw new Error('HTTP ' + res.status);
 
