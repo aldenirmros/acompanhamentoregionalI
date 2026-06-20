@@ -7439,9 +7439,9 @@ function saveDB() {
     setCloudUI('err','Sem conexão');
     return;
   }
-  // ── 5. Agenda sync com nuvem — debounce 350ms para batching de edições rápidas ──
+  // ── 5. Agenda sync com nuvem — debounce 150ms para batching de edições rápidas ──
   clearTimeout(saveDB._t);
-  saveDB._t = setTimeout(_syncEnqueue, 350);
+  saveDB._t = setTimeout(_syncEnqueue, 150);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -7472,49 +7472,57 @@ async function _runSync() {
   const cfg = getCfg();
   if (!cfg.gsUrl) { setCloudUI('off', 'Sem nuvem'); _syncRunning = false; return; }
 
-  const MAX_TRIES = 4;
+  // ── Otimização: só faz GET quando estrutura mudou ──────────────────────────
+  // Para lançar/excluir vendas (caso mais comum) pula o GET e vai direto ao POST.
+  // Isso corta a latência de ~5-8s para ~2-3s por operação.
+  const needGet = !!DB._structureChanged;
+
+  const MAX_TRIES = 3;
   let lastErr = null;
 
   for (let t = 1; t <= MAX_TRIES; t++) {
     try {
       setCloudUI('sync', t > 1 ? `Salvando… (tent. ${t})` : 'Salvando…');
 
-      // ── PASSO 1: Busca snapshot atual da nuvem ──────────────────────────
+      const _t0 = performance.now();
+
+      // ── PASSO 1: GET snapshot — apenas quando estrutura mudou ────────────
       let cloudRec = null;
-      try {
-        // Timestamp na URL: impede que browsers/CDN/proxies retornem cache antigo
-        const _userId   = currentUser?.id || '';
-        const _username = currentUser?.username || cfg.username || '';
-        const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor&_t=' + Date.now(), {
-          cache  : 'no-store',
-          signal : AbortSignal.timeout ? AbortSignal.timeout(35000) : undefined
-        });
-        if (res.ok) {
-          const raw = await res.json().catch(()=>null);
-          // Converte tabelas do Sheets → DB interno para merge
-          cloudRec = raw ? tablesToDB(raw) : null;
-          // Normaliza campos ausentes que causam problemas em browsers antigos
-          if (cloudRec) {
-            if (!cloudRec.sellers  || !Array.isArray(cloudRec.sellers))  cloudRec.sellers  = [];
-            if (!cloudRec.vendas   || typeof cloudRec.vendas   !== 'object') cloudRec.vendas   = {};
-            if (!cloudRec.times    || !Array.isArray(cloudRec.times))    cloudRec.times    = [];
-            if (!cloudRec.regionais|| !Array.isArray(cloudRec.regionais))cloudRec.regionais= [];
-            if (!cloudRec.users    || !Array.isArray(cloudRec.users))    cloudRec.users    = [];
-            ['diasConfig','sellerMetas','hubMetas','mValues',
-             'ativacaoManual','ativacaoManualOv','deletedVendaIds'].forEach(k=>{
-               if (!cloudRec[k] || typeof cloudRec[k] !== 'object' || Array.isArray(cloudRec[k]))
-                 cloudRec[k] = {};
-            });
-            if(!cloudRec.deleted||typeof cloudRec.deleted!=='object'||Array.isArray(cloudRec.deleted))
-              cloudRec.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
-            ['userIds','sellerIds','timeIds','regionalIds'].forEach(k=>{
-              if(!Array.isArray(cloudRec.deleted[k])) cloudRec.deleted[k]=[];
-            });
+      if (needGet) {
+        try {
+          const _userId   = currentUser?.id || '';
+          const _username = currentUser?.username || cfg.username || '';
+          const _tGet0 = performance.now();
+          const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor&_t=' + Date.now(), {
+            cache  : 'no-store',
+            signal : AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined
+          });
+          console.debug(`[sync] GET ${(performance.now()-_tGet0).toFixed(0)}ms`);
+          if (res.ok) {
+            const raw = await res.json().catch(()=>null);
+            cloudRec = raw ? tablesToDB(raw) : null;
+            if (cloudRec) {
+              if (!cloudRec.sellers  || !Array.isArray(cloudRec.sellers))  cloudRec.sellers  = [];
+              if (!cloudRec.vendas   || typeof cloudRec.vendas   !== 'object') cloudRec.vendas   = {};
+              if (!cloudRec.times    || !Array.isArray(cloudRec.times))    cloudRec.times    = [];
+              if (!cloudRec.regionais|| !Array.isArray(cloudRec.regionais))cloudRec.regionais= [];
+              if (!cloudRec.users    || !Array.isArray(cloudRec.users))    cloudRec.users    = [];
+              ['diasConfig','sellerMetas','hubMetas','mValues',
+               'ativacaoManual','ativacaoManualOv','deletedVendaIds'].forEach(k=>{
+                 if (!cloudRec[k] || typeof cloudRec[k] !== 'object' || Array.isArray(cloudRec[k]))
+                   cloudRec[k] = {};
+              });
+              if(!cloudRec.deleted||typeof cloudRec.deleted!=='object'||Array.isArray(cloudRec.deleted))
+                cloudRec.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
+              ['userIds','sellerIds','timeIds','regionalIds'].forEach(k=>{
+                if(!Array.isArray(cloudRec.deleted[k])) cloudRec.deleted[k]=[];
+              });
+            }
           }
+        } catch(e) {
+          console.warn('[sync] GET falhou:', e.message);
+          cloudRec = null;
         }
-      } catch(e) {
-        console.warn('[sync] GET falhou:', e.message);
-        cloudRec = null;
       }
 
       // ── PASSO 2: Merge profundo local → cloud ───────────────────────────
@@ -7572,10 +7580,8 @@ async function _runSync() {
       let postOk = false;
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(()=>ctrl.abort(), 50000);
-        // mode:'no-cors' evita pre-flight CORS ao enviar para Google Apps Script.
-        // Com no-cors a resposta é opaca (não é possível ler body/status):
-        // se o fetch não lançar exceção, assume-se que o POST chegou ao GAS.
+        const tid  = setTimeout(()=>ctrl.abort(), 25000); // era 50s
+        const _tPost0 = performance.now();
         await fetch(cfg.gsUrl, {
           method : 'POST',
           mode   : 'no-cors',
@@ -7584,7 +7590,9 @@ async function _runSync() {
           signal : ctrl.signal
         });
         clearTimeout(tid);
-        postOk = true; // Resposta opaca — ausência de erro = envio confirmado
+        const _tPost1 = performance.now();
+        console.debug(`[sync] POST ${(_tPost1-_tPost0).toFixed(0)}ms | total ${(_tPost1-_t0).toFixed(0)}ms | payload ${(jsonBody.length/1024).toFixed(1)}kb${needGet?'' :' (sem GET)'}`);
+        postOk = true;
       } catch(fetchErr) {
         // Fallback: sendBeacon com Blob text/plain
         if(typeof navigator.sendBeacon === 'function'){
@@ -7600,28 +7608,25 @@ async function _runSync() {
       // ── PASSO 4: Atualiza localStorage com estado mesclado ──────────────
       if (cloudRec) {
         DB = toSend;
-        // Limpa tombstones de entidades localmente após push confirmado
-        // (já aplicados no merge; não precisam persistir)
         if(DB.deleted) DB.deleted = {userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
-        // Reset da flag de mudança estrutural — próximos syncs voltam ao modo delta
-        DB._structureChanged = false;
-        try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
       }
+      // Reset da flag independentemente de ter feito GET ou não
+      DB._structureChanged = false;
+      try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
 
       setCloudUI('ok', 'Nuvem ✓');
       syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
 
-      // Se havia outro sync pendente durante este, executa agora
       if (_syncQueue) { _syncRunning = false; await _runSync(); return; }
       _syncRunning = false;
-      return; // ✅ SUCESSO
+      return;
 
     } catch(err) {
       lastErr = err;
       console.warn(`[sync] tentativa ${t}/${MAX_TRIES} falhou:`, err.message);
       if (t < MAX_TRIES) {
-        // Backoff: 1s → 2s → 4s
-        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, t - 1)));
+        // Backoff reduzido: 500ms → 1s (era 1s → 2s → 4s)
+        await new Promise(r => setTimeout(r, 500 * t));
       }
     }
   }
