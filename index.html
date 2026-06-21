@@ -7230,7 +7230,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbznRsn6g1twnXVOK69qgW-CaQbfzc2O95F05Awr40A6r4PumepVOpBM9dDBgGrf51Md/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwCwzSlei81EMeEQNsAZ7_Pyw7OD5vUp-Usd5Ar0WSiODJDQGVuIy0j7BX8RvtJPME3/exec';
 
 function getCfg(){
   try{
@@ -7252,7 +7252,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbznRsn6g1twnXVOK69qgW-CaQbfzc2O95F05Awr40A6r4PumepVOpBM9dDBgGrf51Md/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwCwzSlei81EMeEQNsAZ7_Pyw7OD5vUp-Usd5Ar0WSiODJDQGVuIy0j7BX8RvtJPME3/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7261,7 +7261,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbznRsn6g1twnXVOK69qgW-CaQbfzc2O95F05Awr40A6r4PumepVOpBM9dDBgGrf51Md/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwCwzSlei81EMeEQNsAZ7_Pyw7OD5vUp-Usd5Ar0WSiODJDQGVuIy0j7BX8RvtJPME3/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7439,9 +7439,9 @@ function saveDB() {
     setCloudUI('err','Sem conexão');
     return;
   }
-  // ── 5. Agenda sync com nuvem — debounce 150ms para batching de edições rápidas ──
+  // ── 5. Agenda sync com nuvem — debounce 350ms para batching de edições rápidas ──
   clearTimeout(saveDB._t);
-  saveDB._t = setTimeout(_syncEnqueue, 150);
+  saveDB._t = setTimeout(_syncEnqueue, 350);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -7472,32 +7472,35 @@ async function _runSync() {
   const cfg = getCfg();
   if (!cfg.gsUrl) { setCloudUI('off', 'Sem nuvem'); _syncRunning = false; return; }
 
-  // ── Otimização: só faz GET quando estrutura mudou ──────────────────────────
-  // Para lançar/excluir vendas (caso mais comum) pula o GET e vai direto ao POST.
-  // Isso corta a latência de ~5-8s para ~2-3s por operação.
-  const needGet = !!DB._structureChanged;
-
-  const MAX_TRIES = 3;
+  const MAX_TRIES = 4;
   let lastErr = null;
 
   for (let t = 1; t <= MAX_TRIES; t++) {
     try {
       setCloudUI('sync', t > 1 ? `Salvando… (tent. ${t})` : 'Salvando…');
 
-      const _t0 = performance.now();
+      // ── Detecta role do usuário ativo ────────────────────────────────────
+      // superAdmin=true tem permissão total — mesmo tratamento de gerente/regional.
+      const _syncIsAdmin = !!(currentUser && (
+        isGerente(currentUser) ||
+        currentUser.superAdmin === true ||
+        currentUser.superAdmin === 'true' ||
+        ['gerente','regional'].includes(String(currentUser.role||'').toLowerCase())
+      ));
 
-      // ── PASSO 1: GET snapshot — apenas quando estrutura mudou ────────────
+      // ── PASSO 1: Busca snapshot atual da nuvem (apenas admins/regionais) ──
+      // Supervisores fazem push direto sem GET prévio: o GAS salva na aba
+      // correta ({username}_vendas) e retorna {ok:true}. Isso elimina um
+      // round-trip desnecessário para o caso mais comum (lançar uma venda).
       let cloudRec = null;
-      if (needGet) {
+      if (_syncIsAdmin) {
         try {
           const _userId   = currentUser?.id || '';
           const _username = currentUser?.username || cfg.username || '';
-          const _tGet0 = performance.now();
           const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor&_t=' + Date.now(), {
             cache  : 'no-store',
-            signal : AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined
+            signal : AbortSignal.timeout ? AbortSignal.timeout(35000) : undefined
           });
-          console.debug(`[sync] GET ${(performance.now()-_tGet0).toFixed(0)}ms`);
           if (res.ok) {
             const raw = await res.json().catch(()=>null);
             cloudRec = raw ? tablesToDB(raw) : null;
@@ -7525,7 +7528,61 @@ async function _runSync() {
         }
       }
 
-      // ── PASSO 2: Merge profundo local → cloud ───────────────────────────
+      // ── PASSO 2 & 3 — Supervisor: POST direto (sem merge) ───────────────
+      // O GAS salva na aba {username}_vendas usando upsertTabByScope.
+      // Não há risco de sobrescrever dados de outros usuários.
+      if (!_syncIsAdmin) {
+        const _directPayload = {
+          _requestUserId : currentUser?.id || '',
+          vendas         : []
+        };
+        // Flatten do objeto vendas por mês
+        Object.values(DB.vendas || {}).forEach(function(arr) {
+          (arr || []).forEach(function(v) { _directPayload.vendas.push(v); });
+        });
+        // Inclui tabelas de escopo do usuário
+        const _userScopedPayload = dbToTables(DB);
+        ['diasConfig','ativacaoManual','ativacaoManualOv',
+         'psv_plano_acao','psv_tpv','psv_detrator_promotor'].forEach(function(k) {
+          if (_userScopedPayload[k] && _userScopedPayload[k].length) {
+            _directPayload[k] = _userScopedPayload[k];
+          }
+        });
+        const _directBody = JSON.stringify(_directPayload);
+        try {
+          const ctrl2 = new AbortController();
+          const tid2  = setTimeout(()=>ctrl2.abort(), 50000);
+          await fetch(cfg.gsUrl, {
+            method : 'POST',
+            mode   : 'no-cors',
+            headers: {'Content-Type': 'text/plain;charset=UTF-8'},
+            body   : _directBody,
+            signal : ctrl2.signal
+          });
+          clearTimeout(tid2);
+        } catch(fetchErr2) {
+          if(typeof navigator.sendBeacon === 'function'){
+            const blob2 = new Blob([_directBody], {type:'text/plain;charset=UTF-8'});
+            navigator.sendBeacon(cfg.gsUrl, blob2);
+            console.warn('[sync] no-cors/fetch falhou (supervisor), usou sendBeacon:', fetchErr2.message);
+          } else {
+            throw fetchErr2;
+          }
+        }
+        // Marca sincronizado: não faz pull completo após o push
+        DB._syncedAt      = Date.now();
+        DB._lastPullTs    = DB._lastPullTs || 0;
+        DB._structureChanged = false;
+        if(DB.deleted) DB.deleted = {userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
+        try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
+        setCloudUI('ok', 'Nuvem ✓');
+        syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
+        if (_syncQueue) { _syncRunning = false; await _runSync(); return; }
+        _syncRunning = false;
+        return; // ✅ SUCESSO (supervisor)
+      }
+
+      // ── PASSO 2: Merge profundo local → cloud (apenas admins/regionais) ──
       const toSend = cloudRec ? _deepMerge(cloudRec, DB) : JSON.parse(JSON.stringify(DB));
 
       // ── PASSO 3: POST com confirmação de resposta ────────────────────────
@@ -7564,11 +7621,12 @@ async function _runSync() {
       // Admins/gerentes/superAdmins ativam _distribuirVendas: o GAS vai
       // rotear cada venda para a aba {supervisor}_vendas correta, baseado
       // no sellerId → timeId → supervisor do time.
-      const _isAdminRole = currentUser && (
+      const _isAdminRole = !!(currentUser && (
+        isGerente(currentUser) ||
         currentUser.superAdmin === true ||
         currentUser.superAdmin === 'true' ||
         ['gerente','regional'].includes(String(currentUser.role||'').toLowerCase())
-      );
+      ));
       if (_isAdminRole) {
         tablesPayload._distribuirVendas = true;
       }
@@ -7580,8 +7638,10 @@ async function _runSync() {
       let postOk = false;
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(()=>ctrl.abort(), 25000); // era 50s
-        const _tPost0 = performance.now();
+        const tid  = setTimeout(()=>ctrl.abort(), 50000);
+        // mode:'no-cors' evita pre-flight CORS ao enviar para Google Apps Script.
+        // Com no-cors a resposta é opaca (não é possível ler body/status):
+        // se o fetch não lançar exceção, assume-se que o POST chegou ao GAS.
         await fetch(cfg.gsUrl, {
           method : 'POST',
           mode   : 'no-cors',
@@ -7590,9 +7650,7 @@ async function _runSync() {
           signal : ctrl.signal
         });
         clearTimeout(tid);
-        const _tPost1 = performance.now();
-        console.debug(`[sync] POST ${(_tPost1-_tPost0).toFixed(0)}ms | total ${(_tPost1-_t0).toFixed(0)}ms | payload ${(jsonBody.length/1024).toFixed(1)}kb${needGet?'' :' (sem GET)'}`);
-        postOk = true;
+        postOk = true; // Resposta opaca — ausência de erro = envio confirmado
       } catch(fetchErr) {
         // Fallback: sendBeacon com Blob text/plain
         if(typeof navigator.sendBeacon === 'function'){
@@ -7608,25 +7666,28 @@ async function _runSync() {
       // ── PASSO 4: Atualiza localStorage com estado mesclado ──────────────
       if (cloudRec) {
         DB = toSend;
+        // Limpa tombstones de entidades localmente após push confirmado
+        // (já aplicados no merge; não precisam persistir)
         if(DB.deleted) DB.deleted = {userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
+        // Reset da flag de mudança estrutural — próximos syncs voltam ao modo delta
+        DB._structureChanged = false;
+        try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
       }
-      // Reset da flag independentemente de ter feito GET ou não
-      DB._structureChanged = false;
-      try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
 
       setCloudUI('ok', 'Nuvem ✓');
       syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
 
+      // Se havia outro sync pendente durante este, executa agora
       if (_syncQueue) { _syncRunning = false; await _runSync(); return; }
       _syncRunning = false;
-      return;
+      return; // ✅ SUCESSO
 
     } catch(err) {
       lastErr = err;
       console.warn(`[sync] tentativa ${t}/${MAX_TRIES} falhou:`, err.message);
       if (t < MAX_TRIES) {
-        // Backoff reduzido: 500ms → 1s (era 1s → 2s → 4s)
-        await new Promise(r => setTimeout(r, 500 * t));
+        // Backoff: 1s → 2s → 4s
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, t - 1)));
       }
     }
   }
@@ -7910,11 +7971,12 @@ async function subirVendasLocais(btn) {
   }
 
   // Só admins/gerentes podem distribuir
-  const isAdminRole = currentUser && (
+  const isAdminRole = !!(currentUser && (
+    isGerente(currentUser) ||
     currentUser.superAdmin === true ||
     currentUser.superAdmin === 'true' ||
     ['gerente','regional'].includes(String(currentUser.role||'').toLowerCase())
-  );
+  ));
   if (!isAdminRole) {
     toast('Apenas administradores podem distribuir vendas', '⚠️');
     return;
@@ -8391,26 +8453,55 @@ function tablesToDB(tables) {
   return db;
 }
 
-// ── cloudPull: busca SEMPRE o banco mais recente do Google Sheets ─────────
-// Regra: nuvem é a fonte da verdade. Só conserva vendas locais pendentes.
+// ── cloudPull: busca da nuvem de forma incremental para usuários normais ──────
+// Admins/regionais: pull completo (precisam de visibilidade de todo o time).
+// Supervisores: envia lastTs + vendasIds já existentes → nuvem retorna apenas deltas.
+// O upsert local mescla novos dados sem apagar a base existente.
 async function cloudPull(mergeLocal = false){
   if(window._blockPull && Date.now()-window._blockPull < 300000) return false;
-  // Guard de concorrência: evita múltiplos pulls simultâneos (ex: polling a cada 5s
-  // enquanto GAS ainda responde a chamada anterior — causava "Sem conexão" espúrio)
   if(window._pullRunning) return false;
   window._pullRunning = true;
   const cfg = getCfg();
   if(!cfg.gsUrl){ window._pullRunning = false; return false; }
   setCloudUI('sync','Carregando…');
   try{
-    // Timestamp garante URL única: nenhum browser, CDN ou proxy reutiliza cache
     const _pullUser = currentUser?.username || cfg.username || '';
     const _pullUid  = currentUser?.id || '';
+
+    // ── Decide se aplica filtro incremental ──────────────────────────────
+    // superAdmin=true, gerente ou regional sempre fazem pull completo.
+    const _isAdminPull = !!(currentUser && (
+      isGerente(currentUser) ||
+      currentUser.superAdmin === true ||
+      currentUser.superAdmin === 'true' ||
+      ['gerente','regional'].includes(String(currentUser.role||'').toLowerCase())
+    ));
+
+    let incrementalParams = '';
+    if (!_isAdminPull && _pullUid) {
+      // Coleta IDs de vendas já existentes localmente
+      const _existingIds = [];
+      Object.values(DB.vendas || {}).forEach(function(arr) {
+        (arr || []).forEach(function(v) { if(v.id != null) _existingIds.push(String(v.id)); });
+      });
+      if (_existingIds.length) {
+        // Envia até 500 IDs para não estourar a URL; acima disso usa só lastTs
+        const _idsToSend = _existingIds.slice(0, 500).join(',');
+        incrementalParams += '&vendasIds=' + encodeURIComponent(_idsToSend);
+      }
+      // Envia timestamp do último pull bem-sucedido
+      const _lastPullTs = DB._lastPullTs || 0;
+      if (_lastPullTs) {
+        incrementalParams += '&lastTs=' + encodeURIComponent(String(_lastPullTs));
+      }
+    }
+
     const url = cfg.gsUrl
       + '?action=get'
       + '&username=' + encodeURIComponent(_pullUser)
       + '&userId='   + encodeURIComponent(_pullUid)
       + '&tables='   + 'sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor'
+      + incrementalParams
       + '&_t='       + Date.now();
     const res = await fetch(url, {
       cache : 'no-store',
@@ -8423,29 +8514,37 @@ async function cloudPull(mergeLocal = false){
     try{ data = await res.json(); }
     catch(e){ throw new Error('Resposta inválida do Apps Script. Reimplante o Web App.'); }
 
-    // Erro explícito do GAS (ex: planilha não encontrada, permissão negada)
     if(data && data.error){
       throw new Error('GAS: ' + data.error);
     }
 
-    // Converte tabelas do Sheets → DB interno
     const rec = tablesToDB(data);
     if(!rec) throw new Error('Resposta inválida do Apps Script. Reimplante o Web App.');
 
-    // Valida que o GAS retornou ao menos uma tabela com dados
-    // (previne sobrescrita do DB local quando planilha estiver vazia ou GAS com erro)
     const hasSellers = Array.isArray(rec?.sellers) && rec.sellers.length > 0;
     const hasVendas  = rec?.vendas && Object.keys(rec.vendas).length > 0;
     const hasTimes   = Array.isArray(rec?.times) && rec.times.length > 0;
     const hasConfig  = rec?.nextId > 0 || rec?._savedAt > 0;
-    if(!hasSellers && !hasVendas && !hasTimes && !hasConfig){
-      // Planilha vazia ou nova: não sobrescreve DB local, retorna false
+
+    // ── Pull incremental: faz upsert das vendas recebidas, não sobrescreve tudo ──
+    const _isIncremental = !_isAdminPull && !!incrementalParams;
+    if(_isIncremental && !hasSellers && !hasVendas && !hasTimes && !hasConfig){
+      // Nada novo para sincronizar — preserva DB local intacto
+      setCloudUI('ok','Nuvem ✓');
+      syncLog('Sem novidades — ' + new Date().toLocaleTimeString('pt-BR'));
+      DB._lastPullTs = Date.now();
+      try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
+      window._pullRunning = false;
+      return true;
+    }
+
+    if(!hasSellers && !hasVendas && !hasTimes && !hasConfig && !_isIncremental){
       setCloudUI('ok','Nuvem ✓ (planilha vazia)');
       console.warn('[cloudPull] Planilha retornou dados vazios — DB local preservado');
+      window._pullRunning = false;
       return false;
     }
 
-    // Normaliza campos ausentes
     if(!rec.sellers   || !Array.isArray(rec.sellers))   rec.sellers   = [];
     if(!rec.vendas    || typeof rec.vendas!=='object')   rec.vendas    = {};
     if(!rec.times     || !Array.isArray(rec.times))     rec.times     = [];
@@ -8458,12 +8557,10 @@ async function cloudPull(mergeLocal = false){
     ['userIds','sellerIds','timeIds','regionalIds'].forEach(k=>{
       if(!Array.isArray(rec.deleted[k])) rec.deleted[k]=[];
     });
-    // Garante arrays das tabelas PSV
     if(!Array.isArray(rec.psvPlano)) rec.psvPlano = [];
     if(!Array.isArray(rec.psvTpv))   rec.psvTpv   = [];
     if(!Array.isArray(rec.psvDp))    rec.psvDp    = [];
 
-    // Normaliza roles
     rec.users = rec.users.map(u=>({
       ...u,
       role     : u.role==='admin'?'gerente': u.role==='user'?'supervisor': u.role||'supervisor',
@@ -8472,7 +8569,6 @@ async function cloudPull(mergeLocal = false){
       timeId   : u.timeId!=null ? Number(u.timeId)||u.timeId : null,
       color    : u.color||(u.role==='gerente'?'#7c3aed':'#2563eb')
     }));
-    // Normaliza times e regionais — garante que nome nunca seja undefined
     rec.times = (rec.times||[]).map(t=>({
       ...t,
       nome     : t.nome || t.name || '',
@@ -8491,11 +8587,51 @@ async function cloudPull(mergeLocal = false){
                          role:'gerente',nome:'Gerente Geral',
                          regionalId:null,timeId:null,color:'#7c3aed'});
 
-    normalizeVendaDates(rec); // normaliza datas brutas antes de qualquer merge
+    normalizeVendaDates(rec);
 
-    // ── Nuvem é a verdade absoluta ─────────────────────────────────────────
-    // Vendas pendentes locais (lançadas e ainda não confirmadas na nuvem)
-    // são re-adicionadas para evitar perda durante o ciclo save→pull.
+    // ── Upsert incremental de vendas: mescla sem apagar base local ────────
+    // Para pulls incrementais (supervisor), injeta apenas as vendas novas
+    // da resposta no DB.vendas existente (nunca zera o array local).
+    if (_isIncremental) {
+      Object.keys(rec.vendas || {}).forEach(function(mes) {
+        const newRows = rec.vendas[mes] || [];
+        if (!newRows.length) return;
+        if (!DB.vendas[mes]) DB.vendas[mes] = [];
+        const existingMap = {};
+        DB.vendas[mes].forEach(function(v) { existingMap[String(v.id)] = true; });
+        newRows.forEach(function(v) {
+          if (!existingMap[String(v.id)]) {
+            DB.vendas[mes].push(v);
+          } else {
+            // Atualiza registro existente (upsert)
+            const idx = DB.vendas[mes].findIndex(function(x){ return String(x.id) === String(v.id); });
+            if (idx >= 0) DB.vendas[mes][idx] = v;
+          }
+        });
+        DB.vendas[mes].sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
+      });
+      // Mantém estrutura atual do DB e atualiza apenas as seções que vieram
+      if (rec.sellers && rec.sellers.length) DB.sellers = rec.sellers;
+      if (rec.times   && rec.times.length)   DB.times   = rec.times;
+      if (rec.regionais&&rec.regionais.length)DB.regionais=rec.regionais;
+      if (rec.users   && rec.users.length)   DB.users   = rec.users;
+      DB._lastPullTs = Date.now();
+      DB.nextId = Math.max(DB.nextId||0, rec.nextId||0);
+      const pwCache = _loadPwCache();
+      if(Array.isArray(DB.users)) DB.users.filter(u=>u.id&&u.password).forEach(u=>{ pwCache[String(u.id)]={p:u.password,un:u.username}; });
+      DB.users = DB.users.map(u=>{
+        const pw = u.password || pwCache[String(u.id)]?.p || _SEED_CREDS_BY_ID[String(u.id)] || _SEED_CREDS[u.username?.toLowerCase()];
+        return pw ? {...u, password:pw} : u;
+      });
+      _savePwCache(pwCache);
+      try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
+      setCloudUI('ok','Nuvem ✓');
+      syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
+      window._pullRunning = false;
+      return true;
+    }
+
+    // ── Pull completo (admin/regional ou primeiro pull) ────────────────────
     const pendVendas = {};
     Object.keys(DB.vendas||{}).forEach(mes=>{
       const cloudIds = new Set((rec.vendas[mes]||[]).map(v=>String(v.id)));
@@ -8509,8 +8645,6 @@ async function cloudPull(mergeLocal = false){
     });
     rec.nextId = Math.max(rec.nextId||0, DB.nextId||0);
 
-    // ── Merge tombstones locais → nuvem: exclusões offline persistem após pull ──
-    // vendas
     if(!rec.deletedVendaIds) rec.deletedVendaIds = {};
     const _pullDelLocal = DB.deletedVendaIds || {};
     Object.keys(_pullDelLocal).forEach(k => {
@@ -8522,7 +8656,6 @@ async function cloudPull(mergeLocal = false){
       const _pdIds = new Set((rec.deletedVendaIds[k]||[]).map(String));
       if(_pdIds.size) rec.vendas[k] = rec.vendas[k].filter(v => !_pdIds.has(String(v.id)));
     });
-    // entidades (users, sellers, times, regionais)
     if(!rec.deleted||typeof rec.deleted!=='object') rec.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
     const _ld2 = DB.deleted||{};
     ['userIds','sellerIds','timeIds','regionalIds'].forEach(k=>{
@@ -8530,7 +8663,6 @@ async function cloudPull(mergeLocal = false){
       const _s2 = new Set(rec.deleted[k].map(String));
       (Array.isArray(_ld2[k])?_ld2[k]:[]).forEach(id=>{ if(!_s2.has(String(id))) rec.deleted[k].push(String(id)); });
     });
-    // Tombstone: filtra entidades deletadas, nunca remove IDs canônicos protegidos
     const _pSel = new Set(rec.deleted.sellerIds.map(String));
     const _pTim = new Set([...rec.deleted.timeIds.map(String)].filter(id=>!_PROTECTED_TIME_IDS.has(id)));
     const _pReg = new Set([...rec.deleted.regionalIds.map(String)].filter(id=>!_PROTECTED_REG_IDS.has(id)));
@@ -8540,23 +8672,15 @@ async function cloudPull(mergeLocal = false){
     if(_pReg.size) rec.regionais = (rec.regionais||[]).filter(x=>!_pReg.has(String(x.id)));
     if(_pUsr.size) rec.users     = (rec.users||[]).filter(x=>!_pUsr.has(String(x.id)));
 
-    // Limpa IDs canônicos dos arrays deleted (não poluir sincronizações futuras)
     rec.deleted.timeIds     = rec.deleted.timeIds.filter(id=>!_PROTECTED_TIME_IDS.has(String(id)));
     rec.deleted.regionalIds = rec.deleted.regionalIds.filter(id=>!_PROTECTED_REG_IDS.has(String(id)));
     rec.deleted.userIds     = rec.deleted.userIds.filter(id=>!_PROTECTED_USR_IDS.has(String(id)));
 
-    // Garante entidades canônicas APÓS tombstone (nunca ficam ausentes)
     migrateToDefaultRegional(rec);
     deduplicateDB(rec);
 
-    // ── CRÍTICO: preserva alterações locais não sincronizadas ──
-    // Quando chamado em polling de fundo (mergeLocal=true), faz merge em vez de
-    // substituir. Isso evita que feriados/metas adicionados localmente (ainda
-    // aguardando o debounce de 350ms do saveDB) sejam sobrescritos pela nuvem.
-    // ── FIX CRÍTICO: preserva senhas usando o cache persistente + seed base ─
     {
       const pwCache = _loadPwCache();
-      // Adiciona/atualiza cache com senhas do DB em memória e do seed base
       if(Array.isArray(DB.users)) DB.users.filter(u=>u.id&&u.password).forEach(u=>{ pwCache[String(u.id)]={p:u.password,un:u.username}; });
       Object.entries(_SEED_CREDS).forEach(([un,pw])=>{
         const u = rec.users.find(x=>x.username===un);
@@ -8571,35 +8695,26 @@ async function cloudPull(mergeLocal = false){
     }
 
     if(mergeLocal && DB._savedAt && DB._savedAt > (rec._savedAt || 0)){
-      // Local tem alterações mais recentes que a nuvem: mescla preservando local
       DB = _deepMerge(rec, DB);
     } else {
-      // CORREÇÃO BUG: mesmo no reload completo, preserva dados PSV locais do
-      // usuário para evitar perda de edições ainda não sincronizadas.
-
-      // psvPlano — substitui bloco local por userId+ymKey (igual a _mergePsvPlano)
       if(Array.isArray(DB.psvPlano) && DB.psvPlano.length) {
         rec.psvPlano = _mergePsvPlano(rec.psvPlano || [], DB.psvPlano);
       }
-
-      // psvTpv — local vence para cada userId+ymKey+hubId+mk
       if(Array.isArray(DB.psvTpv) && DB.psvTpv.length) {
         const _tpvMap = new Map();
         (rec.psvTpv  ||[]).forEach(r => { _tpvMap.set(r.userId+"|"+ r.ymKey+"|"+r.hubId+"|"+r.mk, r); });
         (DB.psvTpv   ||[]).forEach(r => { _tpvMap.set(r.userId+"|"+ r.ymKey+"|"+r.hubId+"|"+r.mk, r); });
         rec.psvTpv = [..._tpvMap.values()];
       }
-
-      // psvDp — local vence para cada userId+ymKey+hubId+tipo+safra
       if(Array.isArray(DB.psvDp) && DB.psvDp.length) {
         const _dpMap = new Map();
         (rec.psvDp ||[]).forEach(r => { _dpMap.set(r.userId+"|"+r.ymKey+"|"+r.hubId+"|"+r.tipo+"|"+r.safra, r); });
         (DB.psvDp  ||[]).forEach(r => { _dpMap.set(r.userId+"|"+r.ymKey+"|"+r.hubId+"|"+r.tipo+"|"+r.safra, r); });
         rec.psvDp = [..._dpMap.values()];
       }
-
       DB = rec;
     }
+    DB._lastPullTs = Date.now();
     try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
     setCloudUI('ok','Nuvem ✓');
     syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
@@ -8607,9 +8722,6 @@ async function cloudPull(mergeLocal = false){
     return true;
 
   } catch(err){
-    // Distingue erro de rede (TypeError: Failed to fetch / sem internet) de erro de servidor.
-    // Erros de rede são silenciados: pill vira "Desconectado" e _syncPending agenda reenvio.
-    // Erros de servidor (HTTP, JSON inválido, GAS) são logados normalmente.
     const _netErr = err instanceof TypeError || !navigator.onLine;
     if(_netErr){
       _syncPending = true;
