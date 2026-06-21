@@ -533,6 +533,8 @@ select.sel:focus{border-color:var(--blue);}
   .dash-filter-label{font-size:11px;}
   .dash-filter-sep{display:none;}
   #df-info{font-size:11px;}
+  .hub-dd-btn{font-size:12px;padding:5px 9px;}
+  .hub-dd-menu{max-height:180px;}
 
   /* ── SELLER BANNER ── */
   .sel-banner{font-size:11px;padding:8px 12px;gap:8px;}
@@ -1209,6 +1211,18 @@ select.sel:focus{border-color:var(--blue);}
 .dash-filter select:focus{border-color:var(--blue);}
 .dash-filter-sep{width:1px;height:22px;background:var(--border);}
 .dash-filter-info{font-size:11px;color:var(--tl);margin-left:auto;}
+/* ── Hub multi-select dropdown ── */
+.hub-dd-wrap{position:relative;display:inline-block;}
+.hub-dd-btn{background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;transition:border-color .15s;}
+.hub-dd-btn:hover{border-color:var(--blue);}
+.hub-dd-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:200px;max-height:260px;overflow-y:auto;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:9999;padding:4px 0;}
+.hub-dd-menu.open{display:block;}
+.hub-dd-item{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;font-size:12.5px;color:var(--td);transition:background .1s;}
+.hub-dd-item:hover{background:var(--hover);}
+.hub-dd-item input[type=checkbox]{accent-color:var(--blue);width:14px;height:14px;cursor:pointer;flex-shrink:0;}
+.hub-dd-item label{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hub-dd-divider{height:1px;background:var(--border);margin:3px 0;}
+.hub-dd-item.all-item{font-weight:600;color:var(--tl);}
 .dash-filter-tag{display:inline-flex;align-items:center;gap:4px;background:var(--blue-g);color:var(--blue);border:1px solid rgba(37,99,235,.2);border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;}
 
 /* ── BOTÃO TRAVAR FILTRO ── */
@@ -1565,6 +1579,295 @@ canvas { display:block; max-width:100%; }
     .page{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
   }
 }
+
+/* ── Moved from body: loose style blocks ── */
+@media(max-width:768px){
+  #app-footer{left:0;bottom:60px;}
+  .page{padding-bottom:104px!important;}
+}
+
+/* ── Slides: invisíveis por padrão, ativos com classe ── */
+.psvp-slide{
+  opacity:0;
+  transform:translateX(40px);
+  transition:opacity .3s ease, transform .3s ease;
+  pointer-events:none;
+}
+.psvp-slide.psvp-on{
+  opacity:1 !important;
+  transform:none !important;
+  pointer-events:auto !important;
+}
+.psvp-slide.psvp-out-left{
+  opacity:0 !important;
+  transform:translateX(-40px) !important;
+  pointer-events:none !important;
+}
+/* ── Cabeçalho de slide ── */
+.psvp-hdr{
+  display:flex;align-items:center;gap:9px;
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+  color:var(--blue);padding-bottom:10px;border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+/* ── dots ── */
+.psvp-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--border);
+  cursor:pointer;transition:all .18s;flex-shrink:0;
+}
+.psvp-dot.on{background:var(--blue);transform:scale(1.4);}
+/* ── btn nav hover ── */
+#psvp-ant:hover:not(:disabled){background:var(--bg);}
+#psvp-prox:hover{opacity:.88;}
+#psvp-ant:disabled,#psvp-prox:disabled{opacity:.35;cursor:not-allowed;}
+
+/* ══════════════════════════════════════════════
+   🏆  TOP 10 COMEMORAÇÃO — CSS
+   ══════════════════════════════════════════════ */
+
+#top10-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: rgba(5,7,20,.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: t10FadeIn .3s ease;
+  overflow-y: auto;
+}
+#top10-overlay[style*="display:none"],
+#top10-overlay[style*="display: none"],
+#top10-overlay.t10-hidden{ display:none !important; }
+@keyframes t10FadeIn{ from{opacity:0} to{opacity:1} }
+
+.t10-panel{
+  background: linear-gradient(160deg,#0f172a 0%,#1a1030 50%,#0a1628 100%);
+  border: 1px solid rgba(180,83,9,.35);
+  border-radius: 24px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(251,191,36,.08),
+    0 32px 80px rgba(0,0,0,.6),
+    0 0 60px rgba(180,83,9,.15) inset;
+  animation: t10SlideUp .38s cubic-bezier(.34,1.56,.64,1);
+}
+.t10-panel::-webkit-scrollbar{width:4px;}
+.t10-panel::-webkit-scrollbar-track{background:transparent;}
+.t10-panel::-webkit-scrollbar-thumb{background:rgba(180,83,9,.4);border-radius:99px;}
+@keyframes t10SlideUp{
+  from{opacity:0;transform:translateY(28px) scale(.97)}
+  to  {opacity:1;transform:none}
+}
+
+.t10-header{
+  position:relative;text-align:center;
+  padding:36px 24px 24px;overflow:hidden;
+}
+.t10-header-glow{
+  position:absolute;inset:-40px;
+  background:radial-gradient(ellipse at 50% -20%,rgba(217,119,6,.28) 0%,transparent 65%);
+  pointer-events:none;
+}
+.t10-close{
+  position:absolute;top:14px;right:14px;
+  width:34px;height:34px;border-radius:9px;
+  border:1px solid rgba(148,163,184,.18);
+  background:rgba(255,255,255,.05);color:#94a3b8;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .15s;z-index:2;
+}
+.t10-close:hover{background:rgba(220,38,38,.2);color:#fca5a5;border-color:rgba(220,38,38,.35);}
+.t10-trophy-icon{
+  font-size:52px;line-height:1;margin-bottom:10px;
+  filter:drop-shadow(0 0 18px rgba(251,191,36,.6));
+  animation:t10TrophyBounce 2.4s ease-in-out infinite;
+}
+@keyframes t10TrophyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.t10-title{
+  font-family:'Outfit',sans-serif;
+  font-size:26px;font-weight:800;letter-spacing:-.5px;
+  background:linear-gradient(90deg,#fbbf24,#f59e0b,#fde68a,#f59e0b,#fbbf24);
+  background-size:200% auto;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  animation:t10Shimmer 2.5s linear infinite;margin:0 0 4px;
+}
+@keyframes t10Shimmer{to{background-position:200% center}}
+.t10-subtitle{
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px;font-weight:500;color:#64748b;
+  text-transform:uppercase;letter-spacing:1.5px;margin:0;
+}
+
+/* Pódio */
+.t10-podio{
+  display:flex;align-items:flex-end;justify-content:center;
+  gap:10px;padding:8px 20px 24px;
+}
+.t10-podio-card{
+  display:flex;flex-direction:column;align-items:center;
+  gap:8px;flex:1;max-width:160px;position:relative;
+}
+.t10-avatar{
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;position:relative;flex-shrink:0;
+}
+.t10-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+.t10-avatar::after{
+  content:'';position:absolute;inset:-3px;border-radius:50%;padding:3px;
+  background:conic-gradient(from 0deg,var(--ring-c1,#fbbf24),var(--ring-c2,#fde68a),var(--ring-c1,#fbbf24));
+  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  -webkit-mask-composite:destination-out;mask-composite:exclude;
+  animation:t10Spin 3s linear infinite;
+}
+@keyframes t10Spin{to{transform:rotate(360deg)}}
+.t10-medal{
+  position:absolute;top:-8px;right:-4px;
+  font-size:18px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));line-height:1;z-index:1;
+}
+.t10-podio-card.rank-1 .t10-medal{font-size:22px;top:-10px;}
+.t10-pname{
+  font-family:'Outfit',sans-serif;font-size:12px;font-weight:700;
+  color:#f1f5f9;text-align:center;line-height:1.2;max-width:120px;
+}
+.t10-podio-card.rank-1 .t10-pname{font-size:13.5px;}
+.t10-phub{
+  font-family:'Outfit',sans-serif;font-size:9.5px;font-weight:600;
+  color:#475569;text-align:center;letter-spacing:.4px;
+  text-transform:uppercase;margin-top:2px;max-width:110px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.t10-row-hub{
+  font-family:'Outfit',sans-serif;font-size:9.5px;font-weight:600;
+  color:#334155;letter-spacing:.3px;text-transform:uppercase;
+  margin-top:1px;
+}
+.t10-pstats{font-family:'JetBrains Mono',monospace;text-align:center;}
+.t10-preal{font-size:20px;font-weight:700;line-height:1;color:#fbbf24;}
+.t10-podio-card.rank-1 .t10-preal{font-size:26px;}
+.t10-podio-card.rank-2 .t10-preal{color:#94a3b8;}
+.t10-podio-card.rank-3 .t10-preal{color:#b45309;}
+.t10-ppct{font-size:10px;color:#475569;margin-top:1px;}
+.t10-base{
+  width:100%;border-radius:10px 10px 0 0;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+}
+.t10-podio-card.rank-1 .t10-base{height:56px;background:linear-gradient(180deg,rgba(251,191,36,.22),rgba(251,191,36,.08));border:1px solid rgba(251,191,36,.3);color:#fbbf24;}
+.t10-podio-card.rank-2 .t10-base{height:40px;background:linear-gradient(180deg,rgba(148,163,184,.18),rgba(148,163,184,.06));border:1px solid rgba(148,163,184,.25);color:#94a3b8;}
+.t10-podio-card.rank-3 .t10-base{height:28px;background:linear-gradient(180deg,rgba(180,83,9,.18),rgba(180,83,9,.06));border:1px solid rgba(180,83,9,.25);color:#b45309;}
+.t10-podio-card.rank-1::before{
+  content:'';position:absolute;inset:-10px;
+  background:radial-gradient(ellipse at 50% 60%,rgba(251,191,36,.12),transparent 70%);
+  pointer-events:none;border-radius:50%;
+}
+
+/* Lista 4-10 */
+.t10-list{padding:0 20px 12px;display:flex;flex-direction:column;gap:6px;}
+.t10-row{
+  display:flex;align-items:center;gap:12px;
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+  border-radius:12px;padding:10px 14px;transition:background .15s;
+}
+.t10-row:hover{background:rgba(255,255,255,.055);}
+.t10-rank-num{
+  font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+  color:#475569;width:20px;text-align:center;flex-shrink:0;
+}
+.t10-mini-avatar{
+  width:36px;height:36px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Outfit',sans-serif;font-size:13px;font-weight:800;
+  color:#fff;overflow:hidden;flex-shrink:0;
+}
+.t10-mini-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+.t10-row-info{flex:1;min-width:0;}
+.t10-row-name{
+  font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;
+  color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.t10-row-meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:#475569;margin-top:1px;}
+.t10-row-score{text-align:right;flex-shrink:0;}
+.t10-row-real{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#f1f5f9;line-height:1;}
+.t10-row-pct{font-family:'JetBrains Mono',monospace;font-size:10px;margin-top:2px;}
+.t10-row-bar-wrap{width:64px;height:3px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin-top:4px;}
+.t10-row-bar-fill{height:100%;border-radius:99px;}
+.t10-footer{
+  padding:12px 20px 20px;text-align:center;
+  font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#334155;
+  border-top:1px solid rgba(255,255,255,.05);
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+.t10-export-btn{
+  display:inline-flex;align-items:center;gap:7px;
+  background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(8,145,178,.18));
+  border:1px solid rgba(37,99,235,.35);
+  color:#60a5fa;border-radius:10px;
+  padding:8px 18px;font-family:'Outfit',sans-serif;
+  font-size:12px;font-weight:700;cursor:pointer;
+  transition:all .18s;
+}
+.t10-export-btn:hover{
+  background:linear-gradient(135deg,rgba(37,99,235,.3),rgba(8,145,178,.3));
+  border-color:rgba(37,99,235,.6);color:#93c5fd;
+  transform:translateY(-1px);
+}
+.t10-export-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.t10-badge-pct{
+  display:inline-block;font-family:'JetBrains Mono',monospace;
+  font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px;
+}
+.t10-pct-ok {background:rgba(5,150,105,.18);color:#34d399;}
+.t10-pct-med{background:rgba(217,119,6,.18);color:#fbbf24;}
+.t10-pct-low{background:rgba(220,38,38,.15);color:#f87171;}
+
+@media(max-width:520px){
+  .t10-panel{border-radius:20px 20px 0 0;max-height:95vh;}
+  .t10-title{font-size:20px;}
+  .t10-trophy-icon{font-size:42px;}
+  .t10-podio{gap:6px;padding:4px 12px 18px;}
+  .t10-list{padding:0 12px 10px;}
+}
+
+/* ── Editor de Cores (moved from body) ── */
+
+/* ── Editor de Cores ── */
+.cores-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;}
+.cores-card-head{padding:13px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--tl);display:flex;align-items:center;gap:7px;}
+.cores-row{display:flex;align-items:center;padding:10px 16px;gap:12px;border-bottom:1px solid rgba(226,232,240,.5);transition:background .12s;}
+.cores-row:last-child{border-bottom:none;}
+.cores-row:hover{background:var(--bg);}
+.cores-swatch{width:32px;height:32px;border-radius:8px;border:1px solid rgba(0,0,0,.12);cursor:pointer;flex-shrink:0;position:relative;overflow:hidden;transition:transform .12s,box-shadow .12s;}
+.cores-swatch:hover{transform:scale(1.1);box-shadow:0 2px 8px rgba(0,0,0,.18);}
+.cores-swatch input[type=color]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:none;padding:0;}
+.cores-info{flex:1;min-width:0;}
+.cores-name{font-size:12px;font-weight:700;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cores-desc{font-size:10.5px;color:var(--tl);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cores-hex{font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--tm);background:var(--bg);border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;width:82px;text-align:center;outline:none;transition:border-color .14s;flex-shrink:0;}
+.cores-hex:focus{border-color:var(--blue);}
+/* Preview cell */
+.cores-preview-cell{flex-shrink:0;width:52px;display:flex;align-items:center;justify-content:center;}
+.cprev{width:46px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
+.cprev-swatch{border:1px solid rgba(0,0,0,.1);}
+.cprev-bg{border:1px solid var(--border);}
+.cprev-border{background:var(--white);}
+.cprev-text{background:var(--bg);border-radius:6px;}
+.cprev-card{background:var(--white);border-radius:6px;padding:5px 6px;flex-direction:column;align-items:flex-start;}
+.cprev-sidebar{padding:4px 6px;justify-content:flex-start;}
+/* Preset chips */
+.preset-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:10px;border:2px solid var(--border);background:var(--white);cursor:pointer;transition:all .15s;font-size:12px;font-weight:600;color:var(--td);}
+.preset-chip:hover{border-color:var(--blue);background:var(--blue-g);}
+.preset-chip.active{border-color:var(--blue);background:var(--blue-g);color:var(--blue);}
+.preset-dots{display:flex;gap:3px;}
+.preset-dot{width:10px;height:10px;border-radius:50%;}
+
 </style>
 </head>
 <body>
@@ -1830,9 +2133,12 @@ canvas { display:block; max-width:100%; }
         <select id="df-regional" onchange="onDashFilterRegional()">
           <option value="">🏠 Todas as Regionais</option>
         </select>
-        <select id="df-time" onchange="onDashFilterTime()">
-          <option value="">🏢 Todos os HUBs</option>
-        </select>
+        <div class="hub-dd-wrap" id="df-time-wrap">
+          <button class="hub-dd-btn" id="df-time-btn" onclick="toggleHubDropdown('df-time-menu',this)">
+            🏢 Todos os HUBs <span id="df-time-badge" style="display:none;background:var(--blue);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700"></span>
+          </button>
+          <div class="hub-dd-menu" id="df-time-menu"></div>
+        </div>
         <div class="dash-filter-sep"></div>
         <span class="dash-filter-info" id="df-info">Exibindo toda a equipe</span>
         <!-- Badge de travado -->
@@ -2165,9 +2471,12 @@ canvas { display:block; max-width:100%; }
       <select id="lf-regional" onchange="onLancarRegionalChange()" style="display:none;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
         <option value="">🏠 Todas as Regionais</option>
       </select>
-      <select id="lf-hub" onchange="onLancarHubChange()" style="display:none;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
-        <option value="">🏢 Todos os HUBs</option>
-      </select>
+      <div class="hub-dd-wrap" id="lf-hub-wrap" style="display:none">
+        <button class="hub-dd-btn" id="lf-hub-btn" onclick="toggleHubDropdown('lf-hub-menu',this)">
+          🏢 Todos os HUBs <span id="lf-hub-badge" style="display:none;background:var(--blue);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700"></span>
+        </button>
+        <div class="hub-dd-menu" id="lf-hub-menu"></div>
+      </div>
       <select id="lf-seller" onchange="onLancarSellerChange()" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer;min-width:180px">
         <option value="">👤 Todos os HC</option>
       </select>
@@ -2870,37 +3179,6 @@ canvas { display:block; max-width:100%; }
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px" id="cores-grid"></div>
 </div>
 
-<style>
-/* ── Editor de Cores ── */
-.cores-card{background:var(--white);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;}
-.cores-card-head{padding:13px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--tl);display:flex;align-items:center;gap:7px;}
-.cores-row{display:flex;align-items:center;padding:10px 16px;gap:12px;border-bottom:1px solid rgba(226,232,240,.5);transition:background .12s;}
-.cores-row:last-child{border-bottom:none;}
-.cores-row:hover{background:var(--bg);}
-.cores-swatch{width:32px;height:32px;border-radius:8px;border:1px solid rgba(0,0,0,.12);cursor:pointer;flex-shrink:0;position:relative;overflow:hidden;transition:transform .12s,box-shadow .12s;}
-.cores-swatch:hover{transform:scale(1.1);box-shadow:0 2px 8px rgba(0,0,0,.18);}
-.cores-swatch input[type=color]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:none;padding:0;}
-.cores-info{flex:1;min-width:0;}
-.cores-name{font-size:12px;font-weight:700;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.cores-desc{font-size:10.5px;color:var(--tl);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.cores-hex{font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--tm);background:var(--bg);border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;width:82px;text-align:center;outline:none;transition:border-color .14s;flex-shrink:0;}
-.cores-hex:focus{border-color:var(--blue);}
-/* Preview cell */
-.cores-preview-cell{flex-shrink:0;width:52px;display:flex;align-items:center;justify-content:center;}
-.cprev{width:46px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;}
-.cprev-swatch{border:1px solid rgba(0,0,0,.1);}
-.cprev-bg{border:1px solid var(--border);}
-.cprev-border{background:var(--white);}
-.cprev-text{background:var(--bg);border-radius:6px;}
-.cprev-card{background:var(--white);border-radius:6px;padding:5px 6px;flex-direction:column;align-items:flex-start;}
-.cprev-sidebar{padding:4px 6px;justify-content:flex-start;}
-/* Preset chips */
-.preset-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:10px;border:2px solid var(--border);background:var(--white);cursor:pointer;transition:all .15s;font-size:12px;font-weight:600;color:var(--td);}
-.preset-chip:hover{border-color:var(--blue);background:var(--blue-g);}
-.preset-chip.active{border-color:var(--blue);background:var(--blue-g);color:var(--blue);}
-.preset-dots{display:flex;gap:3px;}
-.preset-dot{width:10px;height:10px;border-radius:50%;}
-</style>
 
 <!-- ══ MAXIMIZE OVERLAY (PSV) ══ -->
 <div id="psv-maximize-ov" style="display:none;position:fixed;inset:0;background:var(--white);z-index:400;flex-direction:column;padding:20px">
@@ -2936,13 +3214,16 @@ canvas { display:block; max-width:100%; }
     <div id="psv-filter-bar" class="dash-filter" style="display:none;margin-bottom:14px">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--tl)" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       <span class="dash-filter-label">Filtrar:</span>
-      <select id="psv-df-regional" onchange="document.getElementById('psv-df-time').value='';renderPSV()" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
+      <select id="psv-df-regional" onchange="onPsvRegionalChange()" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
         <option value="">🏠 Todas as Regionais</option>
       </select>
-      <select id="psv-df-time" onchange="renderPSV()" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
-        <option value="">🏢 Todos os HUBs</option>
-      </select>
-      <button class="btn-sm btn-sm-g" onclick="document.getElementById('psv-df-regional').value='';document.getElementById('psv-df-time').value='';renderPSV()">✕ Limpar</button>
+      <div class="hub-dd-wrap" id="psv-df-time-wrap">
+        <button class="hub-dd-btn" id="psv-df-time-btn" onclick="toggleHubDropdown('psv-df-time-menu',this)">
+          🏢 Todos os HUBs <span id="psv-df-time-badge" style="display:none;background:var(--blue);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700"></span>
+        </button>
+        <div class="hub-dd-menu" id="psv-df-time-menu"></div>
+      </div>
+      <button class="btn-sm btn-sm-g" onclick="clearPsvFilter()">✕ Limpar</button>
     </div>
 
     <!-- FAIXA TOPO: HC + KPIs + SAFRA numa só linha -->
@@ -3600,7 +3881,7 @@ const DSEM  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const COLORS = ['#2563eb','#059669','#7c3aed','#d97706','#dc2626','#0891b2','#db2777'];
 
 // Aldenir e qualquer usuário com superAdmin=true têm os mesmos poderes do gerente
-function isGerente(u){ u=u||currentUser; return u?.role==='gerente'||u?.superAdmin===true; }
+function isGerente(u){ u=u||currentUser; if(!u) return false; return u.role==='gerente'||(u.superAdmin===true||String(u.superAdmin).toLowerCase()==='true'); }
 
 // ── Localiza o HUB "CE06 - ALPHA" (id canônico 2001) no banco ──
 // Usado para definir a view padrão de Aldenir/superAdmin ao logar ou trocar de mês.
@@ -3760,7 +4041,7 @@ normalizeVendaDates(DB);
 let currentYM = nowYM();
 let selectedSeller = null;
 let currentUser  = null;
-let scopeFilter  = {regionalId:null, timeId:null}; // filtro manual do gerente no dash
+let scopeFilter  = {regionalId:null, timeId:null, timeIds:[]}; // filtro manual do gerente no dash
 let _filterLocked = (()=>{ try{ return localStorage.getItem('bi_filter_locked')==='1'; }catch(e){ return false; } })(); // trava o filtro contra reset ao trocar mês
 let ovRegionalFilter = null; // filtro da página visão geral (gerente)
 let chartBar=null, chartDonut=null, chartLine=null;
@@ -4116,7 +4397,9 @@ function getScopedSellers(includeInativo=false){
 
   // Gerente/superAdmin com filtro manual ativo — filtro é OPCIONAL, nunca esconde dados
   if(isGerente(u)){
-    if(scopeFilter.timeId){
+    if(scopeFilter.timeIds && scopeFilter.timeIds.length>0){
+      sellers = sellers.filter(s=>scopeFilter.timeIds.includes(s.timeId));
+    } else if(scopeFilter.timeId){
       sellers = sellers.filter(s=>s.timeId===scopeFilter.timeId);
     } else if(scopeFilter.regionalId){
       const tids=(DB.times||[]).filter(t=>t.regionalId===scopeFilter.regionalId).map(t=>t.id);
@@ -4129,8 +4412,11 @@ function getScopedSellers(includeInativo=false){
     // Restringe à regional do usuário
     const tids=(DB.times||[]).filter(t=>t.regionalId===u.regionalId).map(t=>t.id);
     sellers = sellers.filter(s=>tids.includes(s.timeId));
-    // Filtro adicional por HUB se o usuário selecionou um
-    if(scopeFilter.timeId && tids.includes(scopeFilter.timeId)){
+    // Filtro adicional por HUBs se o usuário selecionou algum
+    if(scopeFilter.timeIds && scopeFilter.timeIds.length>0){
+      const validTids = scopeFilter.timeIds.filter(id=>tids.includes(id));
+      if(validTids.length>0) sellers = sellers.filter(s=>validTids.includes(s.timeId));
+    } else if(scopeFilter.timeId && tids.includes(scopeFilter.timeId)){
       sellers = sellers.filter(s=>s.timeId===scopeFilter.timeId);
     }
     return sellers;
@@ -4156,13 +4442,13 @@ function populateDashFilter(){
   _loadPersistedScopeFilter();
 
   const rgSel=document.getElementById('df-regional');
-  const tmSel=document.getElementById('df-time');
+  const tmWrap=document.getElementById('df-time-wrap');
   const clearBtn=document.querySelector('#dash-gerente-filter .btn-sm-g');
 
   if(u.role==='supervisor'){
     // Supervisor: mostra só o info do HUB, sem selects nem botão limpar
     if(rgSel) rgSel.style.display='none';
-    if(tmSel) tmSel.style.display='none';
+    if(tmWrap) tmWrap.style.display='none';
     if(clearBtn) clearBtn.style.display='none';
     updateDashFilterInfo();
     _updateLockUI();
@@ -4170,7 +4456,7 @@ function populateDashFilter(){
   }
 
   // Reexibe caso tenha ficado oculto de sessão anterior
-  if(tmSel) tmSel.style.display='';
+  if(tmWrap) tmWrap.style.display='';
   if(clearBtn) clearBtn.style.display='';
 
   if(rgSel){
@@ -4196,39 +4482,33 @@ function populateDashFilter(){
     }
   }
   populateDashFilterTimes();
-  if(tmSel && scopeFilter.timeId) tmSel.value = scopeFilter.timeId;
   updateDashFilterInfo();
   _updateLockUI();
 }
 
 function populateDashFilterTimes(){
   const u = currentUser;
-  // Gerente/superAdmin: usa o select de regional (pode ser null = todos)
-  // Regional: sempre usa a regional dele
   const rgId = isGerente(u)
     ? (parseInt(document.getElementById('df-regional')?.value)||null)
     : (u?.role==='regional'
         ? (u.regionalId||null)
         : (parseInt(document.getElementById('df-regional')?.value)||null));
-  const tmSel= document.getElementById('df-time');
-  if(!tmSel) return;
   const times= rgId
     ? (DB.times||[]).filter(t=>t.regionalId===rgId)
     : (DB.times||[]);
-  const prev = scopeFilter.timeId || parseInt(tmSel.value)||null;
-  const label= rgId ? `🏢 Todos os HUBs (${times.length})` : `🏢 Todos os HUBs`;
-  tmSel.innerHTML=`<option value="">${label}</option>`
-    +times.map(t=>{
-      const rg=rgId?null:(DB.regionais||[]).find(r=>r.id===t.regionalId);
-      const lbl=rg?`${t.nome} — ${rg.nome}`:t.nome;
-      return `<option value="${t.id}"${t.id==prev?' selected':''}>${lbl}</option>`;
-    }).join('');
-  if(scopeFilter.timeId) tmSel.value = scopeFilter.timeId;
+  _buildHubDropdown('df-time-menu', times, scopeFilter.timeIds||[], rgId, function(newIds){
+    const curRgId = parseInt(document.getElementById('df-regional')?.value)||null;
+    scopeFilter = {regionalId:curRgId, timeId:newIds.length===1?newIds[0]:null, timeIds:newIds};
+    _persistScopeFilter();
+    updateDashFilterInfo();
+    selectedSeller=null;
+    renderDash();
+  });
 }
 
 function onDashFilterRegional(){
   const rgId=parseInt(document.getElementById('df-regional')?.value)||null;
-  scopeFilter={regionalId:rgId, timeId:null};
+  scopeFilter={regionalId:rgId, timeId:null, timeIds:[]};
   _persistScopeFilter();
   populateDashFilterTimes();
   updateDashFilterInfo();
@@ -4237,31 +4517,17 @@ function onDashFilterRegional(){
 }
 
 function onDashFilterTime(){
-  const tmId=parseInt(document.getElementById('df-time')?.value)||null;
-  const u=currentUser;
-  // Gerente/superAdmin: rgId vem do select (pode ser null = todas)
-  // Regional: sempre usa a regional dele
-  const rgId = isGerente(u)
-    ? (parseInt(document.getElementById('df-regional')?.value)||null)
-    : (u?.role==='regional' ? (u.regionalId||null) : (parseInt(document.getElementById('df-regional')?.value)||null));
-  scopeFilter={regionalId:rgId, timeId:tmId};
-  _persistScopeFilter();
-  updateDashFilterInfo();
-  selectedSeller=null;
-  renderDash();
+  // kept for compatibility — now handled inside _buildHubDropdown callback
 }
 
 function clearDashFilter(){
   const u=currentUser;
-  // Gerente/superAdmin: limpar = ver TUDO (null/null)
-  // Regional: limpar = ver todos os HUBs da sua regional
   const defRgId = isGerente(u) ? null : ((u?.role==='regional') ? (u.regionalId||null) : null);
-  scopeFilter={regionalId:defRgId, timeId:null};
+  scopeFilter={regionalId:defRgId, timeId:null, timeIds:[]};
   _persistScopeFilter();
   const rgSel=document.getElementById('df-regional');
-  const tmSel=document.getElementById('df-time');
   if(rgSel && isGerente()) rgSel.value='';
-  if(tmSel) tmSel.value='';
+  populateDashFilterTimes();
   updateDashFilterInfo();
   selectedSeller=null;
   renderDash();
@@ -4276,8 +4542,52 @@ function _loadPersistedScopeFilter(){
   if(!_filterLocked) return;
   try{
     const s = localStorage.getItem('bi_scope_filter');
-    if(s){ const f=JSON.parse(s); if(f&&typeof f==='object'){ scopeFilter={regionalId:f.regionalId||null, timeId:f.timeId||null}; } }
+    if(s){ const f=JSON.parse(s); if(f&&typeof f==='object'){ scopeFilter={regionalId:f.regionalId||null, timeId:f.timeId||null, timeIds:Array.isArray(f.timeIds)?f.timeIds:[]}; } }
   }catch(e){}
+}
+
+// ── Generic multi-hub dropdown builder ──────────────────────────────────────
+function _buildHubDropdown(menuId, times, selectedIds, rgId, onChange){
+  const menu = document.getElementById(menuId);
+  if(!menu) return;
+  const badgeId = menuId.replace('-menu','-badge');
+  const badge = document.getElementById(badgeId);
+  const render = () => {
+    const count = selectedIds.length;
+    if(badge){ badge.style.display=count>0?'inline-block':'none'; badge.textContent=count; }
+    menu.innerHTML='';
+    const allChecked = selectedIds.length===0;
+    const allItem = document.createElement('div');
+    allItem.className='hub-dd-item all-item';
+    allItem.innerHTML=`<input type="checkbox" id="${menuId}-all" ${allChecked?'checked':''}><label for="${menuId}-all">🏢 Todos os HUBs</label>`;
+    allItem.querySelector('input').onchange = e => {
+      if(e.target.checked){ selectedIds.length=0; render(); onChange([...selectedIds]); }
+    };
+    menu.appendChild(allItem);
+    const div=document.createElement('div'); div.className='hub-dd-divider'; menu.appendChild(div);
+    times.forEach(t=>{
+      const checked=selectedIds.includes(t.id);
+      const rg=rgId?null:(DB.regionais||[]).find(r=>r.id===t.regionalId);
+      const lbl=rg?`${t.nome} — ${rg.nome}`:t.nome;
+      const item=document.createElement('div');
+      item.className='hub-dd-item';
+      item.innerHTML=`<input type="checkbox" id="${menuId}-${t.id}" ${checked?'checked':''}><label for="${menuId}-${t.id}">${lbl}</label>`;
+      item.querySelector('input').onchange=e=>{
+        if(e.target.checked){ if(!selectedIds.includes(t.id)) selectedIds.push(t.id); }
+        else { const i=selectedIds.indexOf(t.id); if(i>=0) selectedIds.splice(i,1); }
+        render(); onChange([...selectedIds]);
+      };
+      menu.appendChild(item);
+    });
+  };
+  render();
+}
+
+function toggleHubDropdown(menuId, btnEl){
+  document.querySelectorAll('.hub-dd-menu.open').forEach(m=>{ if(m.id!==menuId) m.classList.remove('open'); });
+  const menu=document.getElementById(menuId);
+  if(menu) menu.classList.toggle('open');
+  setTimeout(()=>{ document._hubDDClose=(e)=>{ if(!e.target.closest('.hub-dd-wrap')){ document.querySelectorAll('.hub-dd-menu.open').forEach(m=>m.classList.remove('open')); document.removeEventListener('click',document._hubDDClose); } }; document.addEventListener('click',document._hubDDClose); },10);
 }
 
 function updateDashFilterInfo(){
@@ -4294,7 +4604,15 @@ function updateDashFilterInfo(){
     return;
   }
 
-  if(scopeFilter.timeId){
+  if(scopeFilter.timeIds && scopeFilter.timeIds.length>0){
+    if(scopeFilter.timeIds.length===1){
+      const t=(DB.times||[]).find(x=>x.id===scopeFilter.timeIds[0]);
+      const rg=(DB.regionais||[]).find(x=>x.id===t?.regionalId);
+      el.innerHTML=`<span class="dash-filter-tag" style="background:${rg?.color+'18'||'var(--blue-g)'};color:${rg?.color||'var(--blue)'};border-color:${rg?.color+'44'||'rgba(37,99,235,.2)'}">🏢 ${t?.nome||'HUB'}</span> <span style="font-size:10.5px">${total} HC</span>`;
+    } else {
+      el.innerHTML=`<span class="dash-filter-tag" style="background:rgba(37,99,235,.1);color:var(--blue);border-color:rgba(37,99,235,.3)">🏢 ${scopeFilter.timeIds.length} HUBs selecionados</span> <span style="font-size:10.5px">${total} HC</span>`;
+    }
+  } else if(scopeFilter.timeId){
     const t=(DB.times||[]).find(x=>x.id===scopeFilter.timeId);
     const rg=(DB.regionais||[]).find(x=>x.id===t?.regionalId);
     el.innerHTML=`<span class="dash-filter-tag" style="background:${rg?.color+'18'||'var(--blue-g)'};color:${rg?.color||'var(--blue)'};border-color:${rg?.color+'44'||'rgba(37,99,235,.2)'}">🏢 ${t?.nome||'Time'}</span> <span style="font-size:10.5px">${total} HC</span>`;
@@ -5654,15 +5972,20 @@ function _renderLancarFilterBar(baseSellers){
   }
 
   // ── Mostra HUB para gerente e regional com mais de 1 HUB ──
-  if(hubSel){
+  const hubWrap = document.getElementById('lf-hub-wrap');
+  if(hubWrap){
     if(hubsDisponiveis.length > 1){
-      hubSel.style.display='';
-      const prev = String(lancarHubFilter||'');
-      hubSel.innerHTML='<option value="">🏢 Todos os HUBs</option>'
-        +hubsDisponiveis.map(t=>`<option value="${t.id}"${String(t.id)===prev?' selected':''}>${t.nome}</option>`).join('');
-      if(lancarHubFilter) hubSel.value=String(lancarHubFilter);
+      hubWrap.style.display='';
+      const _lfIds = lancarHubFilter ? [lancarHubFilter] : [];
+      _buildHubDropdown('lf-hub-menu', hubsDisponiveis, _lfIds, null, function(newIds){
+        lancarHubFilter = newIds.length===1 ? newIds[0] : (newIds.length>1?newIds[0]:null);
+        lancarSellerFilter = null;
+        const selSel = document.getElementById('lf-seller');
+        if(selSel) selSel.value='';
+        renderLancar();
+      });
     } else {
-      hubSel.style.display='none';
+      hubWrap.style.display='none';
     }
   }
 
@@ -5708,19 +6031,13 @@ function onLancarRegionalChange(){
   lancarRegionalFilter = parseInt(document.getElementById('lf-regional')?.value)||null;
   lancarHubFilter      = null;
   lancarSellerFilter   = null;
-  const hubSel = document.getElementById('lf-hub');
   const selSel = document.getElementById('lf-seller');
-  if(hubSel) hubSel.value='';
   if(selSel) selSel.value='';
   renderLancar();
 }
 
 function onLancarHubChange(){
-  lancarHubFilter    = parseInt(document.getElementById('lf-hub')?.value)||null;
-  lancarSellerFilter = null;
-  const selSel = document.getElementById('lf-seller');
-  if(selSel) selSel.value='';
-  renderLancar();
+  // kept for compatibility — now handled inside _buildHubDropdown callback
 }
 
 function onLancarSellerChange(){
@@ -5734,10 +6051,8 @@ function clearLancarFilter(){
   lancarHubFilter      = null;
   lancarRegionalFilter = null;
   const rgSel  = document.getElementById('lf-regional');
-  const hubSel = document.getElementById('lf-hub');
   const selSel = document.getElementById('lf-seller');
   if(rgSel)  rgSel.value='';
-  if(hubSel) hubSel.value='';
   if(selSel) selSel.value='';
   renderLancar();
 }
@@ -7230,7 +7545,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxRusrks2Ap8AAQtn_oXmadaUZWkk5Hm5M8Zt7WiGCgnk6IGz4QnOYM7EfcFIqiTeJ6/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwSGyC_WBIcfbzBdUUeEKeNS_I4z_iMQX0wy3dJCBRbI3F_vr9f_l2HBxGrmPg2hKkZ/exec';
 
 function getCfg(){
   try{
@@ -7252,7 +7567,7 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxRusrks2Ap8AAQtn_oXmadaUZWkk5Hm5M8Zt7WiGCgnk6IGz4QnOYM7EfcFIqiTeJ6/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwSGyC_WBIcfbzBdUUeEKeNS_I4z_iMQX0wy3dJCBRbI3F_vr9f_l2HBxGrmPg2hKkZ/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7261,7 +7576,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxRusrks2Ap8AAQtn_oXmadaUZWkk5Hm5M8Zt7WiGCgnk6IGz4QnOYM7EfcFIqiTeJ6/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwSGyC_WBIcfbzBdUUeEKeNS_I4z_iMQX0wy3dJCBRbI3F_vr9f_l2HBxGrmPg2hKkZ/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -8376,31 +8691,42 @@ function tablesToDB(tables) {
   db.psvData = {};
 
   // ── psv_plano_acao ──────────────────────────────────────────────────────────
-  // Regra 1: mapeamento estrito por userId + ymKey (Sheets devolve como número → String forçado)
-  // Regra 2: dedup por userId+ymKey+indicador — mantém APENAS A ÚLTIMA ocorrência
-  //          (Sheets acumula linhas sequencialmente; a linha mais recente fica sempre por último)
+  // Regra 1: mapeamento estrito por rowId (chave primária única e imutável por linha).
+  //          userId e ymKey são normalizados para string mas NÃO filtram a linha —
+  //          o filtro anterior ".filter(r => r.userId && r.ymKey)" descartava linhas
+  //          salvas antes de userId/ymKey estarem disponíveis, causando perda silenciosa.
+  // Regra 2: dedup ESTRITO por rowId — linhas sem rowId recebem chave sintética única
+  //          para coexistir sem colapso, mesmo quando indicador está em branco ou duplicado.
   db.psvPlano = (tables.psv_plano_acao || []).map(r => ({
-    rowId    : String(r.rowId     || ''),    // ← preserva rowId para merge estável (Ponto 3)
-    userId   : String(r.userId   || ''),     // ← chave de isolamento — sempre string
-    ymKey    : String(r.ymKey    || ''),     // ← chave de período   — sempre string
+    rowId    : String(r.rowId     || ''),    // chave primária — nunca omitir
+    userId   : String(r.userId   || ''),     // chave de isolamento — sempre string
+    ymKey    : String(r.ymKey    || ''),     // chave de período — sempre string
     indicador: String(r.indicador|| ''),
     problema : String(r.problema || ''),
     causa    : String(r.causa    || ''),
     acoes    : String(r.acoes    || ''),
     periodo  : String(r.periodo  || ''),
     resultado: String(r.resultado|| ''),
-  })).filter(r => r.userId && r.ymKey);
-  // Dedup estável: usa rowId como chave primária quando disponível.
-  // CORREÇÃO BUG: antes usava userId|ymKey|indicador como chave → colapsava
-  // todas as linhas com mesmo indicador (ou em branco) para uma só — era a
-  // causa raiz da perda silenciosa de linhas do Plano de Ação.
+  })).filter(r => {
+    // Descarta SOMENTE linhas completamente inválidas:
+    // sem rowId E sem userId E sem ymKey — i.e., linha vazia/fantasma do Sheets.
+    // Linhas com rowId preenchido são SEMPRE preservadas, independentemente de
+    // userId/ymKey (podem ter sido salvas em uma sessão anterior ao ser definidos).
+    const hasRowId = r.rowId.trim() !== '';
+    const hasScope = r.userId.trim() !== '' && r.ymKey.trim() !== '';
+    return hasRowId || hasScope;
+  });
+  // Dedup estável: rowId como chave primária absoluta.
+  // Linhas sem rowId (legado) recebem chave sintética com contador único —
+  // garante que linhas com indicador idêntico ou vazio NUNCA se colapssem.
   {
     const _lastMap = new Map();
     let _noidCtr = 0;
     db.psvPlano.forEach(r => {
-      const k = (r.rowId && String(r.rowId).trim() !== '')
+      const hasRowId = r.rowId && r.rowId.trim() !== '';
+      const k = hasRowId
         ? String(r.rowId)
-        : `_noid_${r.userId}_${r.ymKey}_${_noidCtr++}`;
+        : `_noid_${r.userId}_${r.ymKey}_${_noidCtr++}`; // chave sintética única — sem colisão
       _lastMap.set(k, r);
     });
     db.psvPlano = [..._lastMap.values()];
@@ -8539,10 +8865,16 @@ async function cloudPull(mergeLocal = false){
     }
 
     if(!hasSellers && !hasVendas && !hasTimes && !hasConfig && !_isIncremental){
-      setCloudUI('ok','Nuvem ✓ (planilha vazia)');
+      // Planilha retornou dados vazios. Para supervisores normais (não-admin),
+      // isso é válido se não houver vendas ainda — não deve travar a pill em vermelho.
+      // CORREÇÃO BUG Ponto 4: retorna true em vez de false para não bloquear o estado.
+      const _emptyOk = !_isAdminPull; // supervisor sem dados = estado válido
+      setCloudUI('ok', _emptyOk ? 'Nuvem ✓' : 'Nuvem ✓ (planilha vazia)');
       console.warn('[cloudPull] Planilha retornou dados vazios — DB local preservado');
+      DB._lastPullTs = Date.now();
+      try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
       window._pullRunning = false;
-      return false;
+      return _emptyOk ? true : false;
     }
 
     if(!rec.sellers   || !Array.isArray(rec.sellers))   rec.sellers   = [];
@@ -10421,11 +10753,41 @@ function tpvMedioMask(el) {
   el.value = raw ? _maskBRL(raw) : '';
 }
 
-// Converte "R$ 1.234,56" → 1234.56
+// Converte qualquer string monetária pt-BR para float com segurança.
+// Suporta todos os formatos gerados internamente:
+//   "R$ 1.250,00"  → 1250.00   (saída de _maskBRL / tpvMedioMask)
+//   "1.250,00"     → 1250.00   (saída de formatTpvInput / fmtBRL)
+//   "1250,00"      → 1250.00   (sem separador de milhar)
+//   "1250.50"      → 1250.50   (formato numérico puro — fallback)
+//   ""  / null     → null
+// CORREÇÃO BUG: a versão anterior usava /[R$\s.]/g numa character class que
+// removia o CARACTERE 'R', o '$', espaços e TODOS os pontos de uma só vez —
+// funcionava para "R$ 1.250,00" mas falhava silenciosamente quando o valor
+// chegava de formatTpvInput (sem prefixo R$) e tinha formato ambíguo.
+// A nova versão detecta explicitamente se o separador decimal é ',' ou '.'
+// antes de normalizar, eliminando ambiguidades.
 function _parseBRL(s) {
-  if (!s) return null;
-  const cleaned = s.replace(/[R$\s.]/g,'').replace(',','.');
-  const n = parseFloat(cleaned);
+  if (s == null) return null;
+  let v = String(s).trim();
+  if (!v) return null;
+  // 1. Remove prefixo "R$" e espaços circundantes
+  v = v.replace(/R\$\s*/g, '').trim();
+  if (!v) return null;
+  if (v.indexOf(',') !== -1) {
+    // Formato pt-BR: ponto = separador de milhar, vírgula = decimal
+    v = v.replace(/\./g, '').replace(',', '.');
+  } else {
+    // Sem vírgula: pode ser "1250.50" (decimal EN) ou "1.250" (milhar sem centavos)
+    // Se houver apenas 1 ponto com exatamente 2 ou 3 dígitos após → provavelmente decimal ou milhar.
+    // Estratégia segura: se todos os grupos após o ponto têm 3 dígitos → milhar; senão decimal.
+    const dotParts = v.split('.');
+    if (dotParts.length > 2) {
+      // múltiplos pontos → todos são separadores de milhar
+      v = dotParts.join('');
+    }
+    // se dotParts.length === 2, mantém como está (ponto decimal)
+  }
+  const n = parseFloat(v);
   return isNaN(n) ? null : n;
 }
 
@@ -10574,7 +10936,7 @@ function _getPsvOwnerUserId(){
   // Supervisores operam exclusivamente sobre os próprios dados
   if(u.role === 'supervisor') return String(u.id);
   // Gerentes/regionais: verifica HUB selecionado no filtro PSV
-  const psvTmId = parseInt(document.getElementById('psv-df-time')?.value) || null;
+  const psvTmId = _getPsvTmId();
   if(psvTmId){
     const sup = (DB.users || []).find(x => x.role === 'supervisor' && x.timeId === psvTmId);
     if(sup) return String(sup.id);
@@ -10595,7 +10957,7 @@ function _psvIsReadOnly(){
 
 function _getHubIdForPsv(){
   const u = currentUser;
-  const psvTmId = parseInt(document.getElementById('psv-df-time')?.value)||null;
+  const psvTmId = _getPsvTmId();
   if(psvTmId) return String(psvTmId);
   if(u?.timeId) return String(u.timeId);
   // Gerente sem filtro: usa o primeiro HUB do escopo
@@ -10629,11 +10991,12 @@ function _upsertTpvRow(ymKey, hubId, mk, field, value){
 function savePsvTpv(input, mk, ymKey){
   if(_psvIsReadOnly()){ toast('⚠️ Modo visualização — limpe o filtro de HUB para editar.','⚠️'); return; }
   formatTpvInput(input);
-  const raw = input.value.replace(/\./g,'').replace(',','.');
-  const v = parseFloat(raw)||0;
+  // CORREÇÃO BUG: substituído raw.replace + parseFloat inline por _parseBRL
+  // que trata corretamente ponto de milhar, vírgula decimal e prefixo R$.
+  const v = _parseBRL(input.value);
   const hubId = _getHubIdForPsv();
-  _upsertTpvRow(ymKey, hubId, mk, 'valor_real', v||null);
-  const c = !v?'var(--tl)':v<15000?'#dc2626':v<20000?'#d97706':'#059669';
+  _upsertTpvRow(ymKey, hubId, mk, 'valor_real', v);
+  const c = (v == null || v === 0) ? 'var(--tl)' : v<15000 ? '#dc2626' : v<20000 ? '#d97706' : '#059669';
   input.style.color = c;
   DB._savedAt = Date.now();
   try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
@@ -10646,11 +11009,12 @@ function savePsvTpv(input, mk, ymKey){
 function savePsvTpvProj(input, mk, ymKey){
   if(_psvIsReadOnly()){ toast('⚠️ Modo visualização — limpe o filtro de HUB para editar.','⚠️'); return; }
   formatTpvInput(input);
-  const raw = input.value.replace(/\./g,'').replace(',','.');
-  const v = parseFloat(raw)||0;
+  // CORREÇÃO BUG: substituído raw.replace + parseFloat inline por _parseBRL
+  // que trata corretamente ponto de milhar, vírgula decimal e prefixo R$.
+  const v = _parseBRL(input.value);
   const hubId = _getHubIdForPsv();
-  _upsertTpvRow(ymKey, hubId, mk, 'valor_proj', v||null);
-  const c = !v?'var(--tl)':v<15000?'#dc2626':v<20000?'#d97706':'#059669';
+  _upsertTpvRow(ymKey, hubId, mk, 'valor_proj', v);
+  const c = (v == null || v === 0) ? 'var(--tl)' : v<15000 ? '#dc2626' : v<20000 ? '#d97706' : '#059669';
   input.style.color = c;
   DB._savedAt = Date.now();
   try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
@@ -11650,6 +12014,18 @@ function sellerMaturity(s){
   return 'full';
 }
 
+
+function _getPsvTmId(){ const ids=window._psvTimeIds||[]; return ids.length===1?ids[0]:null; }
+function _getPsvTmIds(){ return window._psvTimeIds||[]; }
+function onPsvRegionalChange(){
+  window._psvTimeIds=[];
+  renderPSV();
+}
+function clearPsvFilter(){
+  document.getElementById('psv-df-regional').value='';
+  window._psvTimeIds=[];
+  renderPSV();
+}
 function renderPSV(){
   if(!document.getElementById('page-psv')?.classList.contains('active')) return;
   // Cancela render anterior pendente (evita duplicação quando online dispara cloudPull + onMesChange juntos)
@@ -11667,7 +12043,7 @@ function _doRenderPSV(){
 
   // ── Passo 2: lê os filtros PSV (após reconstrução dos dropdowns) ──
   const psvRgId = parseInt(document.getElementById('psv-df-regional')?.value)||null;
-  const psvTmId = parseInt(document.getElementById('psv-df-time')?.value)||null;
+  const psvTmId = _getPsvTmId();
   const u = currentUser;
 
   // ── Passo 3: constrói sellers independentemente do scopeFilter do Dashboard ──
@@ -11694,7 +12070,10 @@ function _doRenderPSV(){
 
   // Aplica filtro de HUB/Regional selecionado na PSV
   let sellers = baseSellers;
-  if(psvTmId){
+  const psvTmIds = _getPsvTmIds();
+  if(psvTmIds.length>0){
+    sellers = baseSellers.filter(s=>psvTmIds.includes(s.timeId));
+  } else if(psvTmId){
     sellers = baseSellers.filter(s=>s.timeId===psvTmId);
   } else if(psvRgId){
     const tids=(DB.times||[]).filter(t=>t.regionalId===psvRgId).map(t=>t.id);
@@ -11790,12 +12169,10 @@ function _renderPSVFilter(){
   if(!canFilterDash(u)){ bar.style.display='none'; return; }
   bar.style.display='flex';
   const rgSel = document.getElementById('psv-df-regional');
-  const tmSel = document.getElementById('psv-df-time');
   if(u.role==='supervisor'){ bar.style.display='none'; return; }
 
   // Preserva seleções atuais ANTES de reconstruir o HTML
   const prevRg = rgSel?.value || '';
-  const prevTm = tmSel?.value || '';
 
   if(u.role==='regional'&&!isGerente(u)){
     if(rgSel){ const myRg=(DB.regionais||[]).find(r=>r.id===u.regionalId); rgSel.innerHTML=myRg?`<option value="${myRg.id}">${myRg.nome}</option>`:''; rgSel.value=u.regionalId||''; rgSel.style.display='none'; }
@@ -11811,13 +12188,12 @@ function _renderPSVFilter(){
   // HUBs: filtra pela regional selecionada (ou todos se nenhuma)
   const rgId = u.role==='regional'&&!isGerente(u) ? u.regionalId : (parseInt(rgSel?.value)||null);
   const times = rgId ? (DB.times||[]).filter(t=>t.regionalId===rgId) : (DB.times||[]);
-  if(tmSel){
-    tmSel.innerHTML=`<option value="">🏢 Todos os HUBs</option>`+times.map(t=>`<option value="${t.id}">${t.nome}</option>`).join('');
-    // Restaura explicitamente o valor selecionado (só se ainda existir na lista)
-    if(prevTm && times.some(t=>String(t.id)===prevTm)){
-      tmSel.value = prevTm;
-    }
-  }
+  // Build multi-hub dropdown for PSV
+  const _psvIds = window._psvTimeIds || [];
+  _buildHubDropdown('psv-df-time-menu', times, _psvIds, rgId, function(newIds){
+    window._psvTimeIds = newIds;
+    renderPSV();
+  });
 }
 
 function _renderPSVKpis(ymKey, y, m, sellers){
@@ -11831,7 +12207,7 @@ function _renderPSVKpis(ymKey, y, m, sellers){
 
   // Meta — mesma lógica do dashboard
   const psvRgId  = parseInt(document.getElementById('psv-df-regional')?.value)||null;
-  const psvTmId  = parseInt(document.getElementById('psv-df-time')?.value)||null;
+  const psvTmId  = _getPsvTmId();
   const u = currentUser;
   let meta;
   if(psvTmId){
@@ -12269,7 +12645,7 @@ function _renderPSVCharts(ymKey,y,m,sellers){
 
   // Meta — mesma lógica do dashboard: metas dos HUBs filtrados
   const psvRgId = parseInt(document.getElementById('psv-df-regional')?.value)||null;
-  const psvTmId = parseInt(document.getElementById('psv-df-time')?.value)||null;
+  const psvTmId = _getPsvTmId();
   const u = currentUser;
   let meta;
   if(psvTmId){
@@ -13520,12 +13896,6 @@ function _psvPFsChg() {
   <span style="font-family:var(--font);font-size:09px;font-weight:500;color:#111827;letter-spacing:.3px;">Desenvolvido por</span>
   <span style="font-family:var(--font);font-size:09px;font-weight:800;color:#111827;letter-spacing:.4px;">Aldenir Medeiros</span>
 </footer>
-<style>
-@media(max-width:768px){
-  #app-footer{left:0;bottom:60px;}
-  .page{padding-bottom:104px!important;}
-}
-</style>
 
 
 <!-- ════════════════════════════════════════════════════
@@ -13647,42 +14017,6 @@ function _psvPFsChg() {
 
 </div><!-- /psvp -->
 
-<style>
-/* ── Slides: invisíveis por padrão, ativos com classe ── */
-.psvp-slide{
-  opacity:0;
-  transform:translateX(40px);
-  transition:opacity .3s ease, transform .3s ease;
-  pointer-events:none;
-}
-.psvp-slide.psvp-on{
-  opacity:1 !important;
-  transform:none !important;
-  pointer-events:auto !important;
-}
-.psvp-slide.psvp-out-left{
-  opacity:0 !important;
-  transform:translateX(-40px) !important;
-  pointer-events:none !important;
-}
-/* ── Cabeçalho de slide ── */
-.psvp-hdr{
-  display:flex;align-items:center;gap:9px;
-  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
-  color:var(--blue);padding-bottom:10px;border-bottom:1px solid var(--border);
-  flex-shrink:0;
-}
-/* ── dots ── */
-.psvp-dot{
-  width:8px;height:8px;border-radius:50%;background:var(--border);
-  cursor:pointer;transition:all .18s;flex-shrink:0;
-}
-.psvp-dot.on{background:var(--blue);transform:scale(1.4);}
-/* ── btn nav hover ── */
-#psvp-ant:hover:not(:disabled){background:var(--bg);}
-#psvp-prox:hover{opacity:.88;}
-#psvp-ant:disabled,#psvp-prox:disabled{opacity:.35;cursor:not-allowed;}
-</style>
 
 <!-- ══════════════════════════════════════════════════════════════════
      🏆  OVERLAY TOP 10 COMEMORAÇÃO
@@ -13719,222 +14053,6 @@ function _psvPFsChg() {
   </div>
 </div>
 
-<style>
-/* ══════════════════════════════════════════════
-   🏆  TOP 10 COMEMORAÇÃO — CSS
-   ══════════════════════════════════════════════ */
-
-#top10-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9997;
-  background: rgba(5,7,20,.72);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  animation: t10FadeIn .3s ease;
-  overflow-y: auto;
-}
-#top10-overlay[style*="display:none"],
-#top10-overlay[style*="display: none"],
-#top10-overlay.t10-hidden{ display:none !important; }
-@keyframes t10FadeIn{ from{opacity:0} to{opacity:1} }
-
-.t10-panel{
-  background: linear-gradient(160deg,#0f172a 0%,#1a1030 50%,#0a1628 100%);
-  border: 1px solid rgba(180,83,9,.35);
-  border-radius: 24px;
-  width: 100%;
-  max-width: 580px;
-  max-height: 90vh;
-  overflow-y: auto;
-  position: relative;
-  box-shadow:
-    0 0 0 1px rgba(251,191,36,.08),
-    0 32px 80px rgba(0,0,0,.6),
-    0 0 60px rgba(180,83,9,.15) inset;
-  animation: t10SlideUp .38s cubic-bezier(.34,1.56,.64,1);
-}
-.t10-panel::-webkit-scrollbar{width:4px;}
-.t10-panel::-webkit-scrollbar-track{background:transparent;}
-.t10-panel::-webkit-scrollbar-thumb{background:rgba(180,83,9,.4);border-radius:99px;}
-@keyframes t10SlideUp{
-  from{opacity:0;transform:translateY(28px) scale(.97)}
-  to  {opacity:1;transform:none}
-}
-
-.t10-header{
-  position:relative;text-align:center;
-  padding:36px 24px 24px;overflow:hidden;
-}
-.t10-header-glow{
-  position:absolute;inset:-40px;
-  background:radial-gradient(ellipse at 50% -20%,rgba(217,119,6,.28) 0%,transparent 65%);
-  pointer-events:none;
-}
-.t10-close{
-  position:absolute;top:14px;right:14px;
-  width:34px;height:34px;border-radius:9px;
-  border:1px solid rgba(148,163,184,.18);
-  background:rgba(255,255,255,.05);color:#94a3b8;
-  cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all .15s;z-index:2;
-}
-.t10-close:hover{background:rgba(220,38,38,.2);color:#fca5a5;border-color:rgba(220,38,38,.35);}
-.t10-trophy-icon{
-  font-size:52px;line-height:1;margin-bottom:10px;
-  filter:drop-shadow(0 0 18px rgba(251,191,36,.6));
-  animation:t10TrophyBounce 2.4s ease-in-out infinite;
-}
-@keyframes t10TrophyBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-.t10-title{
-  font-family:'Outfit',sans-serif;
-  font-size:26px;font-weight:800;letter-spacing:-.5px;
-  background:linear-gradient(90deg,#fbbf24,#f59e0b,#fde68a,#f59e0b,#fbbf24);
-  background-size:200% auto;
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-  animation:t10Shimmer 2.5s linear infinite;margin:0 0 4px;
-}
-@keyframes t10Shimmer{to{background-position:200% center}}
-.t10-subtitle{
-  font-family:'JetBrains Mono',monospace;
-  font-size:11px;font-weight:500;color:#64748b;
-  text-transform:uppercase;letter-spacing:1.5px;margin:0;
-}
-
-/* Pódio */
-.t10-podio{
-  display:flex;align-items:flex-end;justify-content:center;
-  gap:10px;padding:8px 20px 24px;
-}
-.t10-podio-card{
-  display:flex;flex-direction:column;align-items:center;
-  gap:8px;flex:1;max-width:160px;position:relative;
-}
-.t10-avatar{
-  border-radius:50%;display:flex;align-items:center;justify-content:center;
-  overflow:hidden;position:relative;flex-shrink:0;
-}
-.t10-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
-.t10-avatar::after{
-  content:'';position:absolute;inset:-3px;border-radius:50%;padding:3px;
-  background:conic-gradient(from 0deg,var(--ring-c1,#fbbf24),var(--ring-c2,#fde68a),var(--ring-c1,#fbbf24));
-  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
-  -webkit-mask-composite:destination-out;mask-composite:exclude;
-  animation:t10Spin 3s linear infinite;
-}
-@keyframes t10Spin{to{transform:rotate(360deg)}}
-.t10-medal{
-  position:absolute;top:-8px;right:-4px;
-  font-size:18px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));line-height:1;z-index:1;
-}
-.t10-podio-card.rank-1 .t10-medal{font-size:22px;top:-10px;}
-.t10-pname{
-  font-family:'Outfit',sans-serif;font-size:12px;font-weight:700;
-  color:#f1f5f9;text-align:center;line-height:1.2;max-width:120px;
-}
-.t10-podio-card.rank-1 .t10-pname{font-size:13.5px;}
-.t10-phub{
-  font-family:'Outfit',sans-serif;font-size:9.5px;font-weight:600;
-  color:#475569;text-align:center;letter-spacing:.4px;
-  text-transform:uppercase;margin-top:2px;max-width:110px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.t10-row-hub{
-  font-family:'Outfit',sans-serif;font-size:9.5px;font-weight:600;
-  color:#334155;letter-spacing:.3px;text-transform:uppercase;
-  margin-top:1px;
-}
-.t10-pstats{font-family:'JetBrains Mono',monospace;text-align:center;}
-.t10-preal{font-size:20px;font-weight:700;line-height:1;color:#fbbf24;}
-.t10-podio-card.rank-1 .t10-preal{font-size:26px;}
-.t10-podio-card.rank-2 .t10-preal{color:#94a3b8;}
-.t10-podio-card.rank-3 .t10-preal{color:#b45309;}
-.t10-ppct{font-size:10px;color:#475569;margin-top:1px;}
-.t10-base{
-  width:100%;border-radius:10px 10px 0 0;
-  display:flex;align-items:center;justify-content:center;
-  font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
-}
-.t10-podio-card.rank-1 .t10-base{height:56px;background:linear-gradient(180deg,rgba(251,191,36,.22),rgba(251,191,36,.08));border:1px solid rgba(251,191,36,.3);color:#fbbf24;}
-.t10-podio-card.rank-2 .t10-base{height:40px;background:linear-gradient(180deg,rgba(148,163,184,.18),rgba(148,163,184,.06));border:1px solid rgba(148,163,184,.25);color:#94a3b8;}
-.t10-podio-card.rank-3 .t10-base{height:28px;background:linear-gradient(180deg,rgba(180,83,9,.18),rgba(180,83,9,.06));border:1px solid rgba(180,83,9,.25);color:#b45309;}
-.t10-podio-card.rank-1::before{
-  content:'';position:absolute;inset:-10px;
-  background:radial-gradient(ellipse at 50% 60%,rgba(251,191,36,.12),transparent 70%);
-  pointer-events:none;border-radius:50%;
-}
-
-/* Lista 4-10 */
-.t10-list{padding:0 20px 12px;display:flex;flex-direction:column;gap:6px;}
-.t10-row{
-  display:flex;align-items:center;gap:12px;
-  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
-  border-radius:12px;padding:10px 14px;transition:background .15s;
-}
-.t10-row:hover{background:rgba(255,255,255,.055);}
-.t10-rank-num{
-  font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
-  color:#475569;width:20px;text-align:center;flex-shrink:0;
-}
-.t10-mini-avatar{
-  width:36px;height:36px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  font-family:'Outfit',sans-serif;font-size:13px;font-weight:800;
-  color:#fff;overflow:hidden;flex-shrink:0;
-}
-.t10-mini-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
-.t10-row-info{flex:1;min-width:0;}
-.t10-row-name{
-  font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;
-  color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.t10-row-meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:#475569;margin-top:1px;}
-.t10-row-score{text-align:right;flex-shrink:0;}
-.t10-row-real{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#f1f5f9;line-height:1;}
-.t10-row-pct{font-family:'JetBrains Mono',monospace;font-size:10px;margin-top:2px;}
-.t10-row-bar-wrap{width:64px;height:3px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin-top:4px;}
-.t10-row-bar-fill{height:100%;border-radius:99px;}
-.t10-footer{
-  padding:12px 20px 20px;text-align:center;
-  font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#334155;
-  border-top:1px solid rgba(255,255,255,.05);
-  display:flex;flex-direction:column;align-items:center;gap:10px;
-}
-.t10-export-btn{
-  display:inline-flex;align-items:center;gap:7px;
-  background:linear-gradient(135deg,rgba(37,99,235,.18),rgba(8,145,178,.18));
-  border:1px solid rgba(37,99,235,.35);
-  color:#60a5fa;border-radius:10px;
-  padding:8px 18px;font-family:'Outfit',sans-serif;
-  font-size:12px;font-weight:700;cursor:pointer;
-  transition:all .18s;
-}
-.t10-export-btn:hover{
-  background:linear-gradient(135deg,rgba(37,99,235,.3),rgba(8,145,178,.3));
-  border-color:rgba(37,99,235,.6);color:#93c5fd;
-  transform:translateY(-1px);
-}
-.t10-export-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
-.t10-badge-pct{
-  display:inline-block;font-family:'JetBrains Mono',monospace;
-  font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px;
-}
-.t10-pct-ok {background:rgba(5,150,105,.18);color:#34d399;}
-.t10-pct-med{background:rgba(217,119,6,.18);color:#fbbf24;}
-.t10-pct-low{background:rgba(220,38,38,.15);color:#f87171;}
-
-@media(max-width:520px){
-  .t10-panel{border-radius:20px 20px 0 0;max-height:95vh;}
-  .t10-title{font-size:20px;}
-  .t10-trophy-icon{font-size:42px;}
-  .t10-podio{gap:6px;padding:4px 12px 18px;}
-  .t10-list{padding:0 12px 10px;}
-}
-</style>
 
 <script>
 // ══════════════════════════════════════════════════════════════════════
