@@ -3376,6 +3376,29 @@ canvas { display:block; max-width:100%; }
 </div>
 
 <!-- ══ MODAL VER TODOS OS USUÁRIOS ══ -->
+<!-- ── Modal: Dados pendentes ao fechar ───────────────────────────────────── -->
+<div class="modal-ov" id="exit-pending-modal">
+  <div class="modal-box" style="max-width:400px;text-align:center">
+    <div style="font-size:38px;margin-bottom:12px">☁️</div>
+    <div class="modal-h" style="justify-content:center;font-size:16px">Dados não sincronizados</div>
+    <p style="color:var(--tl);font-size:13px;margin:10px 0 20px;line-height:1.6">
+      Há vendas salvas localmente que <strong>ainda não foram enviadas à nuvem</strong>.<br>
+      Deseja salvar antes de sair?
+    </p>
+    <div class="modal-acts" style="justify-content:center;flex-direction:column;gap:9px">
+      <button class="btn btn-primary" style="width:100%;justify-content:center;gap:8px" onclick="_exitSaveAndLeave()">
+        💾 Salvar e sair
+      </button>
+      <button class="btn" style="width:100%;justify-content:center;gap:8px;color:var(--red);border-color:var(--red)" onclick="_exitWithoutSave()">
+        🚪 Sair sem salvar
+      </button>
+      <button class="btn" style="width:100%;justify-content:center" onclick="_exitCancel()">
+        Cancelar — continuar na página
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-ov" id="ver-usuarios-modal" onclick="if(event.target===this)closeVerUsuariosModal()">
   <div class="modal-box" style="max-width:580px;max-height:80vh;display:flex;flex-direction:column">
     <div class="modal-x" onclick="closeVerUsuariosModal()">✕</div>
@@ -5813,7 +5836,7 @@ function addVenda(){
   renderDash();
   renderPSVIfActive();
   const s=DB.sellers.find(s=>s.id===sid);
-  toast(`✅ ${qty} ${type}(s) registrada(s) — ${s?.name}`);
+  toast(`✅ Venda adicionada com sucesso! — ${qty} ${type}(s) para ${s?.name||'vendedor'}`);
   document.getElementById('qe-qty').value=1;
   // Pull-before-push: busca vendas de outros usuários antes de enviar
   setTimeout(cloudSyncVendas, 200);
@@ -6063,6 +6086,10 @@ function delVenda(id,ymKey){
     const scopeIds = new Set(getScopedSellers(true).map(s=>s.id));
     if(!scopeIds.has(venda.sellerId)){ toast('Sem permissão para excluir este registro','⚠️'); return; }
   }
+  // Confirmação visual antes de prosseguir com a exclusão
+  const seller = DB.sellers?.find(s=>s.id===venda?.sellerId);
+  const nome   = seller?.name || 'este registro';
+  if(!confirm(`Excluir a venda de "${nome}"?\nEsta ação não pode ser desfeita.`)) return;
   if(!DB.deletedVendaIds) DB.deletedVendaIds = {};
   if(!DB.deletedVendaIds[ymKey]) DB.deletedVendaIds[ymKey] = [];
   if(!DB.deletedVendaIds[ymKey].includes(String(id))) DB.deletedVendaIds[ymKey].push(String(id));
@@ -11929,8 +11956,73 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
     if(!cfg.gsUrl || typeof navigator.sendBeacon !== 'function') return;
     try{ const p=new URLSearchParams(); p.append('data',JSON.stringify(DB)); navigator.sendBeacon(cfg.gsUrl, p); }catch(e){}
   }
-  window.addEventListener('pagehide',     _beacon);
-  window.addEventListener('beforeunload', _beacon);
+  window.addEventListener('pagehide', _beacon);
+
+  // g2) beforeunload — modal customizada com opção de salvar + fallback nativo
+  // ── Controle de navegação pendente ──────────────────────────────────────────
+  // Quando o usuário tenta fechar/navegar, capturamos o evento, mostramos nossa
+  // modal e cancelamos a navegação. Após a escolha do usuário, liberamos.
+  let _exitHref   = null;  // URL de destino (cliques em links internos)
+  let _exitAction = null;  // função a executar após confirmação
+
+  function _hasPendingData(){
+    if (!currentUser) return false;
+    return _syncPending || (() => {
+      try {
+        const allVendas = Object.values(DB.vendas || {}).flat();
+        return allVendas.length > 0 && !!getCfg().gsUrl;
+      } catch(_){ return false; }
+    })();
+  }
+
+  function _showExitModal(onConfirmedLeave){
+    const modal = document.getElementById('exit-pending-modal');
+    if(!modal) { onConfirmedLeave(); return; }
+    _exitAction = onConfirmedLeave;
+    modal.classList.add('show');
+  }
+
+  window._exitSaveAndLeave = async function(){
+    const modal = document.getElementById('exit-pending-modal');
+    if(modal) modal.classList.remove('show');
+    try {
+      toast('💾 Salvando…','💾');
+      await manualSave();
+      toast('✅ Dados salvos com sucesso!');
+    } catch(e) {
+      toast('⚠️ Erro ao salvar — dados preservados localmente','⚠️');
+    }
+    if(typeof _exitAction === 'function') _exitAction();
+  };
+
+  window._exitWithoutSave = function(){
+    const modal = document.getElementById('exit-pending-modal');
+    if(modal) modal.classList.remove('show');
+    if(typeof _exitAction === 'function') _exitAction();
+  };
+
+  window._exitCancel = function(){
+    const modal = document.getElementById('exit-pending-modal');
+    if(modal) modal.classList.remove('show');
+    _exitAction = null;
+  };
+
+  // Intercepta beforeunload: exibe modal se houver dados pendentes.
+  // Browsers modernos ignoram mensagens customizadas no confirm nativo,
+  // por isso usamos nossa própria modal + preventDefault para bloquear.
+  window.addEventListener('beforeunload', e => {
+    _beacon();
+    if(_hasPendingData()){
+      // Abre nossa modal em vez do confirm nativo (que não permite botão de salvar)
+      // A ação de "sair" após confirmação do usuário é window.close() ou location.reload()
+      // conforme o contexto — aqui registramos e deixamos o usuário escolher.
+      _showExitModal(() => { window._exitConfirmed = true; window.close(); });
+      // Fallback para browsers que não respeitam preventDefault sem returnValue:
+      e.preventDefault();
+      e.returnValue = 'Há dados locais não sincronizados. Salve antes de sair.';
+      return e.returnValue;
+    }
+  });
 
   // h) storage — sincroniza múltiplas abas do mesmo browser instantaneamente
   window.addEventListener('storage', e=>{
