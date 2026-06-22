@@ -4094,7 +4094,7 @@ function loadDB() {
   if(cached?.sellers && cached?.vendas) {
     // Garante campos obrigatórios
     ['diasConfig','sellerMetas','ativacaoManual','hubMetas','mValues','deletedVendaIds'].forEach(k=>{ if(!cached[k]) cached[k]={}; });
-    ['regionais','times','users'].forEach(k=>{ if(!cached[k]) cached[k]=[]; });
+    ['sellers','regionais','times','users'].forEach(k=>{ if(!Array.isArray(cached[k])) cached[k]=[]; });
     if(!cached.deleted||typeof cached.deleted!=='object') cached.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
     ['userIds','sellerIds','timeIds','regionalIds'].forEach(k=>{ if(!Array.isArray(cached.deleted[k])) cached.deleted[k]=[]; });
     if(!cached._savedAt) cached._savedAt = 0;
@@ -6455,6 +6455,7 @@ function addSeller(){
   // ID único baseado em timestamp — evita colisão em cadastros simultâneos
   const newId = Date.now();
   DB.nextId = newId + 1; // mantém nextId atualizado para compatibilidade
+  if(!Array.isArray(DB.sellers)) DB.sellers = [];
   DB.sellers.push({id:newId,name,cpf,meta,color,timeId,admDate,photo,_ts:newId});
   DB._structureChanged = true;
   saveDB();
@@ -7019,6 +7020,7 @@ function dbSaveSeller(){
   const color=document.getElementById('dba-s-cor')?.value||'#2563eb';
   const newId=Date.now();
   DB.nextId = newId + 1;
+  if(!Array.isArray(DB.sellers)) DB.sellers = [];
   DB.sellers.push({id:newId, name:nome, cpf, meta, color, timeId:hubId, admDate, photo:null, _ts:newId});
   DB._structureChanged = true; // ← OBRIGATÓRIO: garante que sellers é enviado ao Sheets no sync
   saveDB();
@@ -8261,7 +8263,7 @@ function _deepMerge(cloud, local) {
     return [...map.values()];
   }
 
-  r.sellers   = mergeArr(r.sellers,       local.sellers);
+  r.sellers   = mergeArr(r.sellers||[],   local.sellers||[]);
   r.times     = mergeArrCloudWins(r.times,     local.times);
   r.regionais = mergeArrCloudWins(r.regionais, local.regionais);
   r.users     = mergeArrCloudWins(r.users,     local.users);
