@@ -7668,7 +7668,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwHbfX0_qY-ZO53ukxX2bdQKF612IjVpLPCaH-YN3cIRSTgkWD70UlhqQJTfMjVeXOB/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxWt651OpltmLD0BcQW3M056FUqqckBa2xF3zee79o16stHUxacBxutGNxbjLOtfhdc/exec';
 
 function getCfg(){
   try{
@@ -7987,7 +7987,11 @@ async function _runSync() {
         try {
           const _userId   = currentUser?.id || '';
           const _username = currentUser?.username || cfg.username || '';
-          const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor&_t=' + Date.now(), {
+          // GET seletivo: quando só vendas mudaram, não precisa buscar estrutura
+          const _syncGetTables = DB._structureChanged
+            ? 'sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor'
+            : 'vendas,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,config,psv_plano_acao,psv_tpv,psv_detrator_promotor';
+          const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=' + _syncGetTables + '&_t=' + Date.now(), {
             cache  : 'no-store',
             signal : (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(35000) : undefined
           });
@@ -9035,11 +9039,16 @@ async function cloudPull(mergeLocal = false){
       }
     }
 
+    // Admin recebe tudo; supervisor recebe só o seu escopo
+    const _pullTables = _isAdminPull
+      ? 'sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor'
+      : 'sellers,vendas,times,regionais,sellerMetas,hubMetas,mValues,deletedVendaIds,diasConfig,ativacaoManual,ativacaoManualOv,psv_plano_acao,psv_tpv,psv_detrator_promotor';
+
     const url = cfg.gsUrl
       + '?action=get'
       + '&username=' + encodeURIComponent(_pullUser)
       + '&userId='   + encodeURIComponent(_pullUid)
-      + '&tables='   + 'sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor'
+      + '&tables='   + _pullTables
       + incrementalParams
       + '&_t='       + Date.now();
     const res = await fetch(url, {
