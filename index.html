@@ -6456,7 +6456,9 @@ function addSeller(){
   const newId = Date.now();
   DB.nextId = newId + 1; // mantém nextId atualizado para compatibilidade
   if(!Array.isArray(DB.sellers)) DB.sellers = [];
-  DB.sellers.push({id:newId,name,cpf,meta,color,timeId,admDate,photo,_ts:newId});
+  // Deriva regionalId do timeId — necessário para que o GAS preencha a coluna corretamente
+  const _addRegionalId = (DB.times||[]).find(t=>t.id===timeId)?.regionalId ?? null;
+  DB.sellers.push({id:newId,name,cpf,meta,color,timeId,regionalId:_addRegionalId,admDate,photo,_ts:newId});
   DB._structureChanged = true;
   saveDB();
   document.getElementById('v-nome').value='';
@@ -7054,7 +7056,9 @@ function dbSaveSeller(){
   DB.nextId = newId + 1;
   if(!Array.isArray(DB.sellers)) DB.sellers = [];
   // photo: null — nunca persiste no Sheets, fica só no localStorage
-  DB.sellers.push({id:newId, name:nome, cpf, meta, color, timeId:hubId, admDate, photo:null, _ts:newId});
+  // Deriva regionalId do timeId — necessário para o GAS preencher a coluna na aba Sheets
+  const _dbRegionalId = (DB.times||[]).find(t=>t.id===hubId)?.regionalId ?? null;
+  DB.sellers.push({id:newId, name:nome, cpf, meta, color, timeId:hubId, regionalId:_dbRegionalId, admDate, photo:null, _ts:newId});
   DB._structureChanged = true; // garante que sellers é enviado ao Sheets no sync
   saveDB();
   // reset form
@@ -7664,7 +7668,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzAO9USfltgHs88I68RAMr9cERkjrg2_30BPSs920ZJamV-eMxYFJ03SPtXk7StgZOB/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyS3O3YQPpAQYwhLeFPoqMt2KOGJPZUT0GaRT7w_HTeTSJagWnxp4zJfKL-b9lfjcpt/exec';
 
 function getCfg(){
   try{
