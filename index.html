@@ -3798,6 +3798,10 @@ canvas { display:block; max-width:100%; }
           </button>
         </div>
         <div class="sync-log" id="sync-log">—</div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-g" onclick="gsRunMigration()" style="font-size:11px;padding:5px 11px;gap:5px">🔧 Reorganizar Sheets</button>
+            <button class="btn btn-g" onclick="gsCheckStatus()" style="font-size:11px;padding:5px 11px;gap:5px">📊 Status das abas</button>
+          </div>
       </div>
 
       <!-- ── ABA BACKUP / RESTAURAÇÃO ─────────────────────────────── -->
@@ -7623,7 +7627,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzzBSZz0xHL2PBrHHCYVtownDuSmJ-YbWFPTzzHGhHaQfkrXjHWHAAVoGeZo7dFQYsB/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbz7Yc-2xcA1pXOxcd5aRgF6CmQql_KkN7H65Nlxk01Bbl4WHIe0wO6AcpflfARVOR-T/exec';
 
 function getCfg(){
   try{
@@ -7658,6 +7662,57 @@ async function exportHtmlWithGsUrl(){
     prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', "const HARDCODED_GS_URL = '" + gsUrl + "';");
   }
 }
+
+// ── Migração do Sheets — reorganiza abas sem perder dados ──────────────────
+async function gsRunMigration(){
+  const cfg = getCfg();
+  if(!cfg?.gsUrl){ toast('Configure a URL do Apps Script primeiro','⚠️'); return; }
+  if(!isGerente(currentUser)){ toast('Apenas admins podem executar a migração','⚠️'); return; }
+  if(!confirm('Isso vai reorganizar as abas do Google Sheets:\n\n' +
+    '• Criar abas faltantes\n' +
+    '• Migrar dados legado para abas corretas\n' +
+    '• Remover coluna "photo" da aba sellers\n' +
+    '• Reordenar abas\n\n' +
+    'Nenhum dado será perdido. Continuar?')) return;
+  toast('⏳ Executando migração…');
+  syncLog('Iniciando reorganização do Sheets…');
+  try {
+    const url = cfg.gsUrl + '?action=migrate&userId=' + encodeURIComponent(currentUser.id) + '&_t=' + Date.now();
+    const res = await fetch(url, { cache:'no-store', signal: AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined });
+    const data = await res.json();
+    if(data.error){ toast('❌ Erro: ' + data.error,'⚠️'); syncLog('Erro na migração: ' + data.error); return; }
+    toast('✅ Sheets reorganizado com sucesso!');
+    syncLog('Migração concluída:\n' + (data.log || '').split('\n').slice(-8).join('\n'));
+    // Faz pull para atualizar dados locais com nova estrutura
+    setTimeout(()=>{ cloudPull(true).then(()=>{ renderAll(); toast('✅ Dados atualizados!'); }); }, 500);
+  } catch(err) {
+    toast('❌ Erro: ' + (err.message||err),'⚠️');
+    syncLog('Erro na migração: ' + err.message);
+  }
+}
+
+// ── Status das abas do Sheets ──────────────────────────────────────────────
+async function gsCheckStatus(){
+  const cfg = getCfg();
+  if(!cfg?.gsUrl){ toast('Configure a URL do Apps Script primeiro','⚠️'); return; }
+  try {
+    const url = cfg.gsUrl + '?action=status&_t=' + Date.now();
+    const res = await fetch(url, { cache:'no-store' });
+    const data = await res.json();
+    if(data.error){ toast('Erro: ' + data.error,'⚠️'); return; }
+    const sheets = data.sheets || [];
+    const global = sheets.filter(s=>['sellers','vendas','users','times','regionais','sellerMetas','hubMetas','mValues','config','deletedVendaIds','deleted','excluido','_backups'].includes(s.name));
+    const scoped = sheets.filter(s=>s.name.includes('_') && !global.find(g=>g.name===s.name));
+    const orphan = sheets.filter(s=>!global.find(g=>g.name===s.name) && !scoped.find(sc=>sc.name===s.name));
+    let msg = `📊 Sheets — ${sheets.length} abas:\n\n`;
+    msg += `Globais (${global.length}):\n` + global.map(s=>`  ${s.name}: ${s.rows} linhas`).join('\n');
+    msg += `\n\nEscopo/Usuários (${scoped.length}):\n` + scoped.map(s=>`  ${s.name}: ${s.rows} linhas`).join('\n');
+    if(orphan.length) msg += `\n\n⚠️ Órfãs (${orphan.length}):\n` + orphan.map(s=>`  ${s.name}`).join('\n');
+    syncLog(msg);
+    toast(`✅ ${sheets.length} abas encontradas`);
+  } catch(err) { toast('Erro: ' + err.message,'⚠️'); }
+}
+
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
 
 function setCloudUI(state, txt){
@@ -8452,7 +8507,12 @@ async function cloudSyncVendas(){
  */
 function dbToTables(db) {
   // ── sellers ──
-  const sellers = (db.sellers || []).map(s => ({...s}));
+  // ── sellers: EXCLUI 'photo' do payload — fotos base64 causam payload enorme
+  // Fotos ficam apenas no localStorage do cliente; o Sheets armazena só metadados
+  const sellers = (db.sellers || []).map(s => {
+    const { photo, ...rest } = s;
+    return rest;
+  });
 
   // ── vendas: achata {ymKey: [{...}]} → [{mes, ...}] ──
   const vendas = [];
@@ -8592,6 +8652,10 @@ function tablesToDB(tables) {
   const db = {};
 
   // ── sellers ──
+  // sellers do Sheets não tem 'photo' — preserva foto existente do localStorage local
+  const _localSellerPhotos = {};
+  (DB && DB.sellers ? DB.sellers : []).forEach(s => { if(s.photo) _localSellerPhotos[String(s.id)] = s.photo; });
+
   db.sellers = (tables.sellers || []).map(s => {
     const o = {...s};
     if (o.id != null) o.id = isNaN(Number(o.id)) ? o.id : Number(o.id);
@@ -8599,6 +8663,8 @@ function tablesToDB(tables) {
     else o.timeId = null;
     if (o.inativo === 'true' || o.inativo === true) o.inativo = true;
     else o.inativo = false;
+    // Restaura foto do cache local (não vem do Sheets)
+    if (!o.photo && _localSellerPhotos[String(o.id)]) o.photo = _localSellerPhotos[String(o.id)];
 
     // ── Helper: normaliza campos de data para "YYYY-MM-DD" ──────────────────
     // Sheets pode devolver: Date object, ISO string completa ("2026-05-03T00:00:00.000Z"),
