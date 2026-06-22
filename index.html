@@ -1840,7 +1840,17 @@ canvas { display:block; max-width:100%; }
       <div class="card">
         <div class="card-head">
           <div class="card-title"><div class="ctd" style="background:var(--blue)"></div>HC — clique para filtrar gráficos</div>
-          <span style="font-size:10.5px;color:var(--tl)" id="tbl-per"></span>
+          <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+            <span style="display:inline-flex;align-items:center;gap:5px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;color:#1d4ed8;white-space:nowrap" title="Total do Compromisso">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/><path d="M12 6v6l4 2"/></svg>
+              Comp. <span id="hd-comp" style="font-family:'JetBrains Mono',monospace;letter-spacing:-.3px">—</span>
+            </span>
+            <span id="hd-gap-wrap" style="display:inline-flex;align-items:center;gap:5px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;color:#c2410c;white-space:nowrap" title="GAP total (faltante para a meta)">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              GAP <span id="hd-gap" style="font-family:'JetBrains Mono',monospace;letter-spacing:-.3px">—</span>
+            </span>
+            <span style="font-size:10.5px;color:var(--tl)" id="tbl-per"></span>
+          </div>
         </div>
         <div style="overflow-x:auto">
           <table class="dt">
@@ -3977,7 +3987,8 @@ function getMeta(ymKey){
   return 0;
 }
 function getSellerMeta(ymKey, sid){
-  return (DB.sellerMetas[ymKey]||{})[sid] ?? (DB.sellers.find(s=>s.id===sid)?.meta || 0);
+  const v = (DB.sellerMetas[ymKey]||{})[sid] ?? (DB.sellers.find(s=>s.id===sid)?.meta ?? 0);
+  return Number(v) || 0; // garante número — evita concatenação quando meta vem como string do DB
 }
 function getHubMeta(ymKey, timeId){
   const hm=(DB.hubMetas||{})[ymKey]?.[timeId];
@@ -4641,7 +4652,7 @@ function renderDash(){
   const filtStats = sid ? stats.filter(s=>s.id===sid) : stats;
   const tR  = filtStats.reduce((a,s)=>a+s.real,0);
   const tC  = filtStats.reduce((a,s)=>a+s.meta,0);
-  const tG  = Math.max(0, tC-tR);
+  const tG  = filtStats.reduce((a,s)=>a+s.gap,0); // soma dos gaps individuais (evita que excedente de um vendedor mascare gap de outro)
   const tP  = tC>0 ? tR/tC : 0;
   const tPr = duPass>0 ? tR/duPass*duTotal : 0;
   const tPctCls=tP>=1?'bg-green':tP>=0.6?'bg-yellow':'bg-red';
@@ -4652,6 +4663,24 @@ function renderDash(){
     <td class="mono">${tPr.toFixed(0)}</td>
   </tr>`;
   document.getElementById('main-tb').innerHTML=tb;
+
+  // ── Totais no cabeçalho da div HC ──
+  const _hdComp = document.getElementById('hd-comp');
+  const _hdGap  = document.getElementById('hd-gap');
+  const _hdGapW = document.getElementById('hd-gap-wrap');
+  if(_hdComp) _hdComp.textContent = tC;
+  if(_hdGap)  _hdGap.textContent  = tG===0 ? '✓' : '-'+tG;
+  if(_hdGapW){
+    if(tG===0){
+      _hdGapW.style.background   = '#f0fdf4';
+      _hdGapW.style.borderColor  = '#86efac';
+      _hdGapW.style.color        = '#15803d';
+    } else {
+      _hdGapW.style.background   = '#fff7ed';
+      _hdGapW.style.borderColor  = '#fed7aa';
+      _hdGapW.style.color        = '#c2410c';
+    }
+  }
 
   // DONUT
   document.getElementById('donut-p').textContent=(realPct*100).toFixed(1)+'%';
@@ -6943,7 +6972,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwu6mncmvUGZUQMyaOsPimV3kCqZHDpwoyi7yA3axlLCk4sUIklQxHVO6uFC5GBsFYDew/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwnoFLMnZGG2_1O333ZdSN_ZMt1cp0-yz-53MqBN8E8cwDfj03TLVWzMVT80ye1gQoUjg/exec';
 
 function getCfg(){
   try{
@@ -7137,9 +7166,13 @@ function saveDB() {
     setCloudUI('err','Sem conexão');
     return;
   }
-  // ── 5. Agenda sync com nuvem — debounce 350ms para batching de edições rápidas ──
+  // ── 5. Agenda sync com nuvem ─────────────────────────────────────────────
+  // [V-2 ETAPA 4] Debounce aumentado de 350ms → 1000ms (máx 1 sync/segundo).
+  // Garante que edições rápidas consecutivas sejam agrupadas em um único POST,
+  // reduzindo requisições simultâneas ao Google Apps Script.
+  // Nenhuma alteração é perdida: o localStorage já foi salvo no passo 3.
   clearTimeout(saveDB._t);
-  saveDB._t = setTimeout(_syncEnqueue, 350);
+  saveDB._t = setTimeout(_syncEnqueue, 1000);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -7716,6 +7749,8 @@ function tablesToDB(tables) {
     if (o.id != null) o.id = isNaN(Number(o.id)) ? o.id : Number(o.id);
     if (o.timeId != null && o.timeId !== '') o.timeId = Number(o.timeId) || o.timeId;
     else o.timeId = null;
+    if (o.meta != null && o.meta !== '') o.meta = Number(o.meta) || 0;
+    else o.meta = 0;
     if (o.inativo === 'true' || o.inativo === true) o.inativo = true;
     else o.inativo = false;
 
@@ -8114,7 +8149,7 @@ async function cloudPull(mergeLocal = false){
     // ── CRÍTICO: preserva alterações locais não sincronizadas ──
     // Quando chamado em polling de fundo (mergeLocal=true), faz merge em vez de
     // substituir. Isso evita que feriados/metas adicionados localmente (ainda
-    // aguardando o debounce de 350ms do saveDB) sejam sobrescritos pela nuvem.
+    // aguardando o debounce de 1000ms do saveDB) sejam sobrescritos pela nuvem.
     // ── FIX CRÍTICO: preserva senhas usando o cache persistente + seed base ─
     {
       const pwCache = _loadPwCache();
@@ -10892,7 +10927,7 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
     const prevSavedAt = DB._savedAt || 0;
 
     // mergeLocal=true: preserva alterações locais pendentes (ex: feriado recém-adicionado
-    // que ainda não passou pelo debounce de 350 ms do saveDB)
+    // que ainda não passou pelo debounce de 1000ms do saveDB)
     const r = await cloudPull(true);
     if(!r) return;
 
