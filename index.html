@@ -4806,22 +4806,26 @@ function navMes(dir){
   if(next>=0&&next<opts.length){ sel.value=opts[next].value; onMesChange(); }
 }
 function onMesChange(){
-  currentYM=document.getElementById('mes-sel').value;
-  selectedSeller=null;
-  ovRegionalFilter=null;
-  lancarSellerFilter=null;
+  currentYM = document.getElementById('mes-sel').value;
+  selectedSeller = null;
+  ovRegionalFilter = null;
+  lancarSellerFilter = null;
   // Reseta plano PSV ao trocar mês — cada mês tem seu próprio plano
   _psvPlan = [];
   // Se o filtro está travado: mantém scopeFilter intacto ao trocar mês
-  if(_filterLocked){
+  if (_filterLocked) {
     syncCalToBI();
     renderAll();
     return;
   }
-  // Ao trocar mês, superAdmin/gerente mantém o scopeFilter que já estava ativo
-  // (sem forçar nenhum HUB específico). Supervisor e regional mantêm seu próprio escopo.
-  if(!isGerente(currentUser)){
-    lancarHubFilter      = null;
+  // CORREÇÃO: Restaura a ancoragem padrão do escopo para super-usuários e Aldenir contra resets nulos
+  if (currentUser?.username === 'aldenir' || currentUser?.superAdmin) {
+    const ce06 = _findCe06(DB, null);
+    lancarHubFilter = ce06?.id || null;
+    lancarRegionalFilter = ce06?.regionalId || null;
+    if (ce06) scopeFilter = {regionalId: ce06.regionalId, timeId: ce06.id};
+  } else {
+    lancarHubFilter = null;
     lancarRegionalFilter = null;
   }
   syncCalToBI();
@@ -5857,26 +5861,27 @@ function renderLancar(){
   // OUTROS ROLES: usa getScopedSellers que já respeita o escopo da patente.
   let baseSellers;
   if(isGerente(u)){
-    // Todos os sellers, respeitando inativo por data
-    baseSellers = DB.sellers.filter(s=>{
-      if(!s.inativo) return true;
-      if(s.desligamento){
-        const [dy,dm]=s.desligamento.split('-').map(Number);
-        if(y < dy || (y===dy && m <= dm-1)) return true;
+    // Para Gerente/Admin Geral: Lista TODOS os HCs válidos do banco, respeitando a data de desligamento
+    baseSellers = DB.sellers.filter(s => {
+      if (!s.inativo) return true;
+      if (s.desligamento) {
+        const [dy, dm] = s.desligamento.split('-').map(Number);
+        if (y < dy || (y === dy && m <= dm - 1)) return true;
       }
       return false;
     });
-    // Aplica filtro de HUB da página lançar
-    if(lancarHubFilter){
-      baseSellers = baseSellers.filter(s=>s.timeId===lancarHubFilter);
-    } else if(lancarRegionalFilter){
-      const tids=(DB.times||[]).filter(t=>t.regionalId===lancarRegionalFilter).map(t=>t.id);
-      baseSellers = baseSellers.filter(s=>tids.includes(s.timeId));
+
+    // CORREÇÃO: Aplica filtros adicionais de interface APENAS se estiverem explicitamente selecionados
+    if (lancarHubFilter) {
+      baseSellers = baseSellers.filter(s => s.timeId === lancarHubFilter);
+    } else if (lancarRegionalFilter) {
+      const tids = (DB.times || []).filter(t => t.regionalId === lancarRegionalFilter).map(t => t.id);
+      baseSellers = baseSellers.filter(s => tids.includes(s.timeId));
     }
   } else {
-    // Regional / Supervisor: escopo já restrito por getScopedSellers
+    // Para Regionais e Supervisores: Mantém o escopo restrito original de patente
     baseSellers = getScopedSellers(true);
-    if(lancarHubFilter) baseSellers = baseSellers.filter(s=>s.timeId===lancarHubFilter);
+    if (lancarHubFilter) baseSellers = baseSellers.filter(s => s.timeId === lancarHubFilter);
   }
 
   const baseIds = new Set(baseSellers.map(s=>s.id));
@@ -7572,7 +7577,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbytxx5fbeyVs33XZxfJrgzayddG1BgYrg_ebqZMiPEnTFluGdveFbJHLpmsrlABFpkq/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzzBSZz0xHL2PBrHHCYVtownDuSmJ-YbWFPTzzHGhHaQfkrXjHWHAAVoGeZo7dFQYsB/exec';
 
 function getCfg(){
   try{
@@ -7594,7 +7599,8 @@ async function exportHtmlWithGsUrl(){
   try{
     const res  = await fetch(window.location.href);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbytxx5fbeyVs33XZxfJrgzayddG1BgYrg_ebqZMiPEnTFluGdveFbJHLpmsrlABFpkq/exec';`);
+    // Substitui a URL embutida no HTML exportado pela URL ativa atual (única fonte de verdade)
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, "const HARDCODED_GS_URL = '" + gsUrl + "';");
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7603,7 +7609,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbytxx5fbeyVs33XZxfJrgzayddG1BgYrg_ebqZMiPEnTFluGdveFbJHLpmsrlABFpkq/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', "const HARDCODED_GS_URL = '" + gsUrl + "';");
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
