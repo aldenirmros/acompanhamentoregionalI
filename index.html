@@ -4462,7 +4462,13 @@ function populateDashFilter(){
   df.style.display='flex';
 
   // Restaura filtro travado do localStorage (se houver)
+  // Para gerente/superAdmin: só restaura se o filtro ainda faz sentido (HUBs existem)
   _loadPersistedScopeFilter();
+  if(isGerente(u) && scopeFilter.timeId){
+    // Valida que o HUB filtrado ainda existe no banco; caso contrário limpa
+    const hubExists = (DB.times||[]).some(t=>t.id===scopeFilter.timeId);
+    if(!hubExists) scopeFilter = {regionalId:null, timeId:null, timeIds:[]};
+  }
 
   const rgSel=document.getElementById('df-regional');
   const tmWrap=document.getElementById('df-time-wrap');
@@ -4818,12 +4824,13 @@ function onMesChange(){
     renderAll();
     return;
   }
-  // CORREÇÃO: Restaura a ancoragem padrão do escopo para super-usuários e Aldenir contra resets nulos
-  if (currentUser?.username === 'aldenir' || currentUser?.superAdmin) {
-    const ce06 = _findCe06(DB, null);
-    lancarHubFilter = ce06?.id || null;
-    lancarRegionalFilter = ce06?.regionalId || null;
-    if (ce06) scopeFilter = {regionalId: ce06.regionalId, timeId: ce06.id};
+  // superAdmin/gerente começa com escopo limpo (vê todos os HUBs)
+  // O filtro manual do dashboard permite restringir depois se quiser
+  if (isGerente(currentUser)) {
+    // Limpa qualquer filtro fixo anterior — gerente vê TUDO por padrão
+    scopeFilter = {regionalId: null, timeId: null, timeIds: []};
+    lancarHubFilter = null;
+    lancarRegionalFilter = null;
   } else {
     lancarHubFilter = null;
     lancarRegionalFilter = null;
@@ -6971,14 +6978,17 @@ function dbSaveSeller(){
   const admDate=document.getElementById('dba-s-adm')?.value||fmtD(today());
   const color=document.getElementById('dba-s-cor')?.value||'#2563eb';
   const newId=Date.now();
-  DB.sellers.push({id:newId,name:nome,cpf,meta,color,timeId:hubId,admDate,_ts:newId});
+  DB.nextId = newId + 1;
+  DB.sellers.push({id:newId, name:nome, cpf, meta, color, timeId:hubId, admDate, photo:null, _ts:newId});
+  DB._structureChanged = true; // ← OBRIGATÓRIO: garante que sellers é enviado ao Sheets no sync
   saveDB();
   // reset form
   ['dba-s-nome','dba-s-cpf','dba-s-meta'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';});
+  const corEl=document.getElementById('dba-s-cor'); if(corEl) corEl.value='#2563eb';
+  const admEl=document.getElementById('dba-s-adm'); if(admEl) admEl.value='';
   document.getElementById('add-seller')?.classList.remove('open');
-  renderDbSellers(); renderDash(); populateQESellers();
-  toast(`✅ ${nome} adicionado!`);
-  cloudSyncVendas();
+  renderDbSellers(); renderSellers(); renderDash(); populateQESellers();
+  toast(`✅ ${nome} adicionado ao HUB!`);
 }
 
 function dbSaveHub(){
@@ -7847,7 +7857,7 @@ async function _runSync() {
           const _username = currentUser?.username || cfg.username || '';
           const res = await fetch(cfg.gsUrl + '?action=get&username=' + encodeURIComponent(_username) + '&userId=' + _userId + '&tables=sellers,vendas,users,times,regionais,sellerMetas,hubMetas,mValues,diasConfig,ativacaoManual,ativacaoManualOv,deletedVendaIds,deleted,config,psv_plano_acao,psv_tpv,psv_detrator_promotor&_t=' + Date.now(), {
             cache  : 'no-store',
-            signal : AbortSignal.timeout ? AbortSignal.timeout(35000) : undefined
+            signal : (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(35000) : undefined
           });
           if (res.ok) {
             const raw = await res.json().catch(()=>null);
@@ -9559,8 +9569,17 @@ function renderAll(){
 // ══════════════════════════════════════════════════════════
 //  AUTH — Login / Logout / Session
 // ══════════════════════════════════════════════════════════
-function getSession(){ try{ return JSON.parse(sessionStorage.getItem('bi_sess')||'null'); }catch(e){return null;} }
-function setSession(u){ sessionStorage.setItem('bi_sess',JSON.stringify(u)); currentUser=u; }
+// Fallback de sessão em memória para navegadores que bloqueiam sessionStorage (iOS privado, Samsung Browser)
+let _sessionMemory = null;
+function getSession(){
+  try{ const v=sessionStorage.getItem('bi_sess'); if(v) return JSON.parse(v); }catch(e){}
+  return _sessionMemory; // fallback em memória
+}
+function setSession(u){
+  _sessionMemory = u; // sempre salva em memória
+  currentUser = u;
+  try{ sessionStorage.setItem('bi_sess', JSON.stringify(u)); }catch(e){} // melhor esforço
+}
 
 // Atualiza currentUser com a versão mais recente do banco (pós-cloudPull)
 // Preserva a senha da sessão que não é armazenada no DB por segurança
@@ -9583,7 +9602,7 @@ function _refreshCurrentUserFromDB(){
     console.log('[auth] escopo do usuário atualizado da nuvem:', fresh.username);
   }
 }
-function clearSession(){ sessionStorage.removeItem('bi_sess'); currentUser=null; }
+function clearSession(){ _sessionMemory=null; currentUser=null; try{ sessionStorage.removeItem('bi_sess'); }catch(e){} }
 
 function doLogin(){
   const uname = document.getElementById('li-user').value.trim().toLowerCase();
