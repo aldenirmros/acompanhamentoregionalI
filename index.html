@@ -6973,11 +6973,26 @@ function dbToggleAddForm(id){
 function _dbFillAddSelects(formId){
   if(formId==='add-seller'){
     const sel=document.getElementById('dba-s-hub');
-    if(sel) sel.innerHTML='<option value="">— Selecione —</option>'
-      +(DB.times||[]).map(t=>{
-        const rg=(DB.regionais||[]).find(r=>r.id==t.regionalId);
-        return `<option value="${t.id}">${t.nome}${rg?' ('+rg.nome+')':''}`;
-      }).join('');
+    const u=currentUser;
+    if(sel){
+      if(u?.role==='supervisor' && u.timeId){
+        // Supervisor: select travado no próprio HUB — não pode injetar em time alheio
+        const supT=(DB.times||[]).find(t=>t.id===u.timeId);
+        sel.innerHTML=supT
+          ? `<option value="${supT.id}" selected>${supT.nome}</option>`
+          : `<option value="${u.timeId}" selected>HUB #${u.timeId}</option>`;
+        sel.value=String(u.timeId);
+        sel.disabled=true;
+      } else {
+        // Admin/regional: lista todos os HUBs disponíveis
+        sel.disabled=false;
+        sel.innerHTML='<option value="">— Selecione —</option>'
+          +(DB.times||[]).map(t=>{
+            const rg=(DB.regionais||[]).find(r=>r.id==t.regionalId);
+            return `<option value="${t.id}">${t.nome}${rg?' ('+rg.nome+')':''}`;
+          }).join('');
+      }
+    }
     // data admissão default hoje
     const adm=document.getElementById('dba-s-adm');
     if(adm&&!adm.value) adm.value=fmtD(today());
@@ -7012,8 +7027,25 @@ function dbOnAddUserRoleChange(){
 function dbSaveSeller(){
   const nome=(document.getElementById('dba-s-nome')?.value||'').trim().toUpperCase();
   if(!nome){ toast('Informe o nome do HC','⚠️'); return; }
-  const hubId=parseInt(document.getElementById('dba-s-hub')?.value)||null;
-  if(!hubId){ toast('Selecione o HUB','⚠️'); return; }
+
+  // Lê o HUB selecionado — para supervisor, o select está travado no seu próprio HUB
+  const hubIdRaw = parseInt(document.getElementById('dba-s-hub')?.value)||null;
+  const u = currentUser;
+
+  // Validação de escopo no frontend (defesa em profundidade)
+  let hubId = hubIdRaw;
+  if(u?.role==='supervisor'){
+    if(!u.timeId){ toast('Seu usuário não está vinculado a nenhum HUB','⚠️'); return; }
+    if(hubIdRaw && hubIdRaw !== u.timeId){
+      toast('Permissão negada: você só pode criar HCs no seu próprio HUB','⚠️');
+      console.warn('[dbSaveSeller] tentativa de injeção em timeId diferente bloqueada');
+      return;
+    }
+    hubId = u.timeId; // força — nunca confia no valor do DOM para supervisor
+  } else {
+    if(!hubId){ toast('Selecione o HUB','⚠️'); return; }
+  }
+
   const cpf=(document.getElementById('dba-s-cpf')?.value||'').trim();
   const meta=parseInt(document.getElementById('dba-s-meta')?.value)||14;
   const admDate=document.getElementById('dba-s-adm')?.value||fmtD(today());
@@ -7021,13 +7053,16 @@ function dbSaveSeller(){
   const newId=Date.now();
   DB.nextId = newId + 1;
   if(!Array.isArray(DB.sellers)) DB.sellers = [];
+  // photo: null — nunca persiste no Sheets, fica só no localStorage
   DB.sellers.push({id:newId, name:nome, cpf, meta, color, timeId:hubId, admDate, photo:null, _ts:newId});
-  DB._structureChanged = true; // ← OBRIGATÓRIO: garante que sellers é enviado ao Sheets no sync
+  DB._structureChanged = true; // garante que sellers é enviado ao Sheets no sync
   saveDB();
   // reset form
   ['dba-s-nome','dba-s-cpf','dba-s-meta'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';});
   const corEl=document.getElementById('dba-s-cor'); if(corEl) corEl.value='#2563eb';
   const admEl=document.getElementById('dba-s-adm'); if(admEl) admEl.value='';
+  // Reabre o select do hub (disabled) para refletir o estado correto após salvar
+  if(u?.role==='supervisor'){ const sel=document.getElementById('dba-s-hub'); if(sel) sel.disabled=true; }
   document.getElementById('add-seller')?.classList.remove('open');
   renderDbSellers(); renderSellers(); renderDash(); populateQESellers();
   toast(`✅ ${nome} adicionado ao HUB!`);
@@ -7629,7 +7664,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbz7Yc-2xcA1pXOxcd5aRgF6CmQql_KkN7H65Nlxk01Bbl4WHIe0wO6AcpflfARVOR-T/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzAO9USfltgHs88I68RAMr9cERkjrg2_30BPSs920ZJamV-eMxYFJ03SPtXk7StgZOB/exec';
 
 function getCfg(){
   try{
@@ -7983,21 +8018,58 @@ async function _runSync() {
       // V22: O GAS salva na aba global 'vendas' usando upsertTabByScope (mes+sellerId como escopo).
       // Não há risco de sobrescrever dados de outros usuários.
       if (!_syncIsAdmin) {
+        // ── Payload do supervisor: apenas dados do próprio usuário ──────────
+        // Cada tabela de escopo é filtrada para conter somente as rows cujo
+        // campo de proprietário (userId / sellerId) bate com currentUser.id.
+        // Isso evita que o supervisor envie dados de outros usuários ao GAS,
+        // o que causaria sobrescrita indevida em abas alheias. (HTML-4/5/7)
+        const _uid = String(currentUser?.id || '');
+        const _scopedIds = new Set(getScopedSids()); // sellers do supervisor
+
         const _directPayload = {
-          _requestUserId : currentUser?.id || '',
+          _requestUserId : _uid,
           vendas         : []
         };
-        // Flatten do objeto vendas por mês
+
+        // HTML-7: vendas — apenas sells cujo sellerId está no escopo do supervisor
         Object.values(DB.vendas || {}).forEach(function(arr) {
-          (arr || []).forEach(function(v) { _directPayload.vendas.push(v); });
+          (arr || []).forEach(function(v) {
+            if (_scopedIds.has(v.sellerId)) _directPayload.vendas.push(v);
+          });
         });
-        // Inclui tabelas de escopo do usuário
+
+        // Serializa todas as tabelas de escopo a partir do DB completo
         const _userScopedPayload = dbToTables(DB);
-        ['diasConfig','ativacaoManual','ativacaoManualOv',
-         'psv_plano_acao','psv_tpv','psv_detrator_promotor'].forEach(function(k) {
-          if (_userScopedPayload[k] && _userScopedPayload[k].length) {
-            _directPayload[k] = _userScopedPayload[k];
-          }
+
+        // HTML-4: diasConfig — apenas chaves do currentUser
+        // Formato das chaves: '202605' (global/legado) ou 'u{userId}_{YYYYMM}'
+        // Para supervisor, enviamos apenas as chaves que lhe pertencem.
+        const _diasConfigFiltered = (_userScopedPayload.diasConfig || []).filter(function(row) {
+          // row.userId === '' significa chave global sem dono — supervisor envia a sua
+          // row.userId === _uid significa chave do próprio supervisor — inclui
+          // row.userId !== _uid e !== '' significa outra pessoa — exclui
+          return row.userId === '' || row.userId === _uid;
+        });
+        if (_diasConfigFiltered.length) _directPayload.diasConfig = _diasConfigFiltered;
+
+        // HTML-5: ativacaoManual — apenas rows onde sellerId === _uid
+        const _atvManualFiltered = (_userScopedPayload.ativacaoManual || []).filter(function(row) {
+          return String(row.sellerId) === _uid;
+        });
+        if (_atvManualFiltered.length) _directPayload.ativacaoManual = _atvManualFiltered;
+
+        // ativacaoManualOv — apenas rows onde userId === _uid
+        const _atvOvFiltered = (_userScopedPayload.ativacaoManualOv || []).filter(function(row) {
+          return String(row.userId) === _uid;
+        });
+        if (_atvOvFiltered.length) _directPayload.ativacaoManualOv = _atvOvFiltered;
+
+        // psv_plano_acao / psv_tpv / psv_detrator_promotor — apenas userId === _uid
+        ['psv_plano_acao','psv_tpv','psv_detrator_promotor'].forEach(function(k) {
+          const filtered = (_userScopedPayload[k] || []).filter(function(row) {
+            return String(row.userId) === _uid;
+          });
+          if (filtered.length) _directPayload[k] = filtered;
         });
         const _directBody = JSON.stringify(_directPayload);
         try {
