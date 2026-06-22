@@ -986,7 +986,7 @@ select.sel:focus{border-color:var(--blue);}
 .gbf{height:100%;border-radius:99px;}
 
 /* ── CHARTS GRID ── */
-.charts-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px;}
+.charts-row{display:grid;grid-template-columns:1fr 1.8fr;gap:16px;margin-bottom:18px;}
 
 /* ── DIAS MANUAL CONFIG ── */
 .dias-config{background:var(--white);border-radius:var(--r);border:1px solid var(--border);box-shadow:var(--sh);padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
@@ -1864,7 +1864,7 @@ canvas { display:block; max-width:100%; }
       </div>
     </div>
 
-    <!-- 3 CHARTS: Realizado vs Meta | Vendas por Dia | Realizado vs Projeção -->
+    <!-- 2 CHARTS: Realizado vs Meta | Vendas por Dia -->
     <div class="charts-row">
       <div class="card">
         <div class="card-head">
@@ -1888,15 +1888,9 @@ canvas { display:block; max-width:100%; }
             <button class="chart-maximize-btn" onclick="maximizeChart('line')" title="Maximizar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
           </div>
         </div>
-        <div style="padding:14px;height:300px"><canvas id="ch-line"></canvas></div>
+        <div style="padding:14px;height:380px"><canvas id="ch-line"></canvas></div>
       </div>
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title"><div class="ctd" style="background:var(--purple)"></div>Realizado vs Projeção</div>
-          <button class="chart-maximize-btn" onclick="maximizeChart('bar')" title="Maximizar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
-        </div>
-        <div style="padding:14px;height:250px"><canvas id="ch-bar"></canvas></div>
-      </div>
+
     </div>
 
     <!-- MAPA SEMANAL DE VENDAS -->
@@ -5196,23 +5190,33 @@ function makeLineConfig(labels, dataReal, pointColors, sellersPerDay){
         legend:{display:false},
         tooltip:{
           callbacks:{
-            label:c=>`  Vendas: ${c.raw??'—'}`,
+            title: items => {
+              const d = items[0]?.label ?? '';
+              return `📅 ${d}`;
+            },
+            label: c => `  Total: ${c.raw ?? '—'} venda(s)`,
             afterBody: function(items){
               if(!sellersPerDay) return [];
               const idx = items[0]?.dataIndex;
-              if(idx==null) return [];
-              const names = sellersPerDay[idx];
-              if(!names||!names.length) return [];
-              const lines = ['', '  Vendedores:'];
-              names.forEach(n=>lines.push(`  · ${n}`));
+              if(idx == null) return [];
+              const sellers = sellersPerDay[idx];
+              if(!sellers || !sellers.length) return [];
+              const lines = [''];
+              sellers.forEach(({name, qty}) => {
+                const bar = '█'.repeat(Math.min(qty, 8)) + (qty > 8 ? '…' : '');
+                lines.push(`  ${name}  ${bar}  ${qty}`);
+              });
               return lines;
             }
           },
-          backgroundColor:'rgba(15,23,42,0.92)',
-          titleColor:'#e2e8f0',bodyColor:'#94a3b8',
-          borderColor:'rgba(255,255,255,0.08)',borderWidth:1,
-          cornerRadius:10,padding:12,
-          boxPadding:4
+          backgroundColor:'rgba(15,23,42,0.95)',
+          titleColor:'#93c5fd',
+          bodyColor:'#e2e8f0',
+          borderColor:'rgba(99,179,237,0.18)',borderWidth:1,
+          cornerRadius:12,padding:14,
+          boxPadding:4,
+          titleFont:{size:12,weight:'700'},
+          bodyFont:{size:11.5}
         },
         numberLabel:{}
       },
@@ -5231,7 +5235,8 @@ function buildLine(ymKey,y,m,sid){
   if(chartLine) chartLine.destroy();
   const dias=getDiasComSabado(y,m), t=today();
   const labels=dias.map(d=>`${d.getDate()}/${m+1}`);
-  const scopedIds=getScopedSellers().map(s=>s.id);
+  const scopedSellers=getScopedSellers();
+  const scopedIds=scopedSellers.map(s=>s.id);
   const vendas=getVendas(ymKey);
   const dataReal=dias.map(d=>{
     if(d>t) return null;
@@ -5240,10 +5245,26 @@ function buildLine(ymKey,y,m,sid){
     return (sid ? vs.filter(v=>v.sellerId===sid) : vs.filter(v=>scopedIds.includes(v.sellerId)))
       .reduce((a,v)=>a+v.qty,0);
   });
+  // sellersPerDay: para cada dia, lista detalhada por vendedor (nome + qty) para o tooltip
+  const sellersPerDay=dias.map(d=>{
+    if(d>t) return [];
+    const ds=fmtD(d);
+    const vs=vendas.filter(v=>v.date===ds);
+    const filtered=sid ? vs.filter(v=>v.sellerId===sid) : vs.filter(v=>scopedIds.includes(v.sellerId));
+    // Agrupa por vendedor e soma qty
+    const agg={};
+    filtered.forEach(v=>{
+      const s=scopedSellers.find(x=>x.id===v.sellerId);
+      const name=s?s.name:('ID '+v.sellerId);
+      agg[name]=(agg[name]||0)+v.qty;
+    });
+    // Ordena por qty desc
+    return Object.entries(agg).sort((a,b)=>b[1]-a[1]).map(([name,qty])=>({name,qty}));
+  });
   const maxVal=Math.max(0,...dataReal.filter(v=>v!==null));
   const pointColors=dias.map((d,i)=>d.getDay()===6?'#94a3b8':linePointColor(dataReal[i],maxVal));
-  _lineParams={labels,dataReal,pointColors};
-  chartLine=new Chart(ctx,makeLineConfig(labels,dataReal,pointColors));
+  _lineParams={labels,dataReal,pointColors,sellersPerDay};
+  chartLine=new Chart(ctx,makeLineConfig(labels,dataReal,pointColors,sellersPerDay));
 }
 
 // ══════════════════════════════════════════════════════════
