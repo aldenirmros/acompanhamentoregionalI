@@ -5039,7 +5039,9 @@ function buildDonut(real,gap){
 }
 
 function buildBar(stats, sid, duPass, duTotal){
-  const ctx=document.getElementById('ch-bar').getContext('2d');
+  const _barEl = document.getElementById('ch-bar');
+  if(!_barEl) return; // canvas removido do dash — só existe no modal de maximização
+  const ctx = _barEl.getContext('2d');
   if(chartBar) chartBar.destroy();
   const data = sid ? stats.filter(s=>s.id===sid) : stats;
 
@@ -6612,7 +6614,7 @@ function maximizeChart(type){
   // Gráfico de linha: reconstrói com bolinhas numeradas e escala vermelho→verde
   if(type==='line'){
     const cfg = _lineParams
-      ? makeLineConfig(_lineParams.labels, _lineParams.dataReal, _lineParams.pointColors)
+      ? makeLineConfig(_lineParams.labels, _lineParams.dataReal, _lineParams.pointColors, _lineParams.sellersPerDay)
       : JSON.parse(JSON.stringify(src.config));
     cfg.options.maintainAspectRatio = false;
     cfg.options.responsive = true;
