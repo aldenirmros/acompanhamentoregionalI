@@ -2020,7 +2020,7 @@ canvas { display:block; max-width:100%; }
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-brand">
-      <h1>Acomp. de Vendas</h1>
+      <h1 id="tb-sub">Acomp. de Vendas</h1>
     </div>
 
     <!-- STATUS SYNC -->
@@ -2074,6 +2074,7 @@ canvas { display:block; max-width:100%; }
       <div class="cal-wrap" id="cal-wrap">
         <button class="cal-btn" onclick="toggleCalendar()" id="cal-btn" title="Calendário">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span id="cal-btn-label">Cal</span>
         </button>
         <div class="cal-dropdown" id="cal-dropdown">
           <div class="cal-header">
@@ -2266,6 +2267,14 @@ canvas { display:block; max-width:100%; }
         <div style="padding:14px;flex:1;min-height:260px;"><canvas id="ch-line"></canvas></div>
       </div>
 
+    </div>
+
+    <!-- GAP LIST — ranking de HC por gap -->
+    <div class="card" style="margin-top:4px">
+      <div class="card-head">
+        <div class="card-title"><div class="ctd" style="background:var(--orange)"></div>Ranking de Gap — clique para filtrar</div>
+      </div>
+      <div id="gap-l" style="padding:0"></div>
     </div>
 
     <!-- MAPA SEMANAL DE VENDAS -->
@@ -2471,6 +2480,7 @@ canvas { display:block; max-width:100%; }
       <select id="lf-regional" onchange="onLancarRegionalChange()" style="display:none;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
         <option value="">🏠 Todas as Regionais</option>
       </select>
+      <select id="lf-hub" style="display:none"></select>
       <div class="hub-dd-wrap" id="lf-hub-wrap" style="display:none">
         <button class="hub-dd-btn" id="lf-hub-btn" onclick="toggleHubDropdown('lf-hub-menu',this)">
           🏢 Todos os HUBs <span id="lf-hub-badge" style="display:none;background:var(--blue);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700"></span>
@@ -6301,6 +6311,32 @@ function renderSellers(){
   if(urgEl) urgEl.innerHTML=`<option value="">— Selecione —</option>`+(DB.regionais||[]).map(r=>`<option value="${r.id}">${r.nome}</option>`).join('');
 }
 
+
+function addUser(){
+  const username=(document.getElementById('um-username')?.value||'').trim().toLowerCase();
+  const password=(document.getElementById('um-password')?.value||'');
+  const nome=(document.getElementById('um-nome')?.value||'').trim();
+  const role=document.getElementById('um-role')?.value||'supervisor';
+  if(!username){ toast('Informe o usuário (login)','⚠️'); return; }
+  if(password.length<4){ toast('Senha deve ter mín. 4 caracteres','⚠️'); return; }
+  if(DB.users?.find(u=>u.username===username)){ toast(`Usuário @${username} já existe`,'⚠️'); return; }
+  const timeId=parseInt(document.getElementById('um-time')?.value)||null;
+  const regionalId=parseInt(document.getElementById('um-regional')?.value)||null;
+  if(role==='supervisor'&&!timeId){ toast('Selecione o HUB para o Supervisor','⚠️'); return; }
+  if((role==='regional')&&!regionalId){ toast('Selecione a Regional para o Admin Regional','⚠️'); return; }
+  const newId=Date.now();
+  if(!DB.users) DB.users=[];
+  const newUser={id:newId,username,password,role,nome:nome||username,timeId,regionalId,color:'#2563eb',_ts:newId};
+  DB.users.push(newUser);
+  _updatePwCache([newUser]);
+  _SEED_CREDS[username]=password;
+  DB._structureChanged=true;
+  saveDB();
+  // Limpa form
+  ['um-username','um-password','um-nome'].forEach(i=>{const e=document.getElementById(i);if(e)e.value='';});
+  renderUserList();
+  toast(`✅ Login @${username} criado!`);
+}
 function renderTimesList(){
   const u=currentUser;
   const el=document.getElementById('times-list'); if(!el) return;
