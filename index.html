@@ -7273,12 +7273,16 @@ async function _runSync() {
       const toSend = cloudRec ? _deepMerge(cloudRec, DB) : JSON.parse(JSON.stringify(DB));
 
       // ── PASSO 3: POST com confirmação de resposta ────────────────────────
-      // Tombstones de entidades (sellers/times/regionais/users) NÃO são gravados
-      // no Sheets — são usados apenas localmente para filtrar o merge desta sessão.
-      // Se forem persistidos no Sheets, acumulam e deletam dados adicionados
-      // manualmente na planilha por outros usuários / pelo administrador.
+      // Tombstones SÃO gravados no Sheets para que exclusões sobrevivam entre sessões.
+      // IDs protegidos (canônicos) são filtrados antes do envio para não serem
+      // acidentalmente deletados por outros clientes ao fazer o merge.
       const toPush = JSON.parse(JSON.stringify(toSend));
-      toPush.deleted = {userIds:[], sellerIds:[], timeIds:[], regionalIds:[]};
+      // Remove IDs protegidos dos tombstones antes de persistir
+      if (toPush.deleted) {
+        toPush.deleted.timeIds     = (toPush.deleted.timeIds||[]).filter(id=>!_PROTECTED_TIME_IDS.has(String(id)));
+        toPush.deleted.regionalIds = (toPush.deleted.regionalIds||[]).filter(id=>!_PROTECTED_REG_IDS.has(String(id)));
+        toPush.deleted.userIds     = (toPush.deleted.userIds||[]).filter(id=>!_PROTECTED_USR_IDS.has(String(id)));
+      }
 
       // Serializa para envio — texto puro (não URL-encoded) para evitar
       // triplicar o tamanho do payload e corrupção em e.parameter do GAS
@@ -7315,9 +7319,8 @@ async function _runSync() {
       // ── PASSO 4: Atualiza localStorage com estado mesclado ──────────────
       if (cloudRec) {
         DB = toSend;
-        // Limpa tombstones de entidades localmente após push confirmado
-        // (já aplicados no merge; não precisam persistir)
-        if(DB.deleted) DB.deleted = {userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
+        // Tombstones MANTIDOS em memória e localStorage — são a fonte da verdade
+        // para exclusões. Zerá-los faria as entidades ressurgirem no próximo GET.
         try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
       }
 
