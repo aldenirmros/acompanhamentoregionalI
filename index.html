@@ -3974,6 +3974,9 @@ migrateToDefaultRegional(DB);
 deduplicateDB(DB);
 normalizeVendaDates(DB);
 let currentYM = nowYM();
+// Flag: true quando o usuário navegou manualmente para um mês diferente do atual.
+// Impede que ensureCurrentMonth() sobrescreva a escolha manual do usuário.
+let _userSelectedPastMonth = false;
 
 // ── [V6-C1] Monitor automático de virada de mês ──────────────────────────────
 // Detecta quando o usuário permanece na aba além da meia-noite (ou além do
@@ -3994,8 +3997,11 @@ function ensureCurrentMonth() {
   if (!currentUser) return; // não logado — sem operação
   const freshYM = nowYM();
   if (freshYM === currentYM) return; // mês correto — nada a fazer
+  // Se o usuário escolheu manualmente um mês diferente, não força retorno ao mês atual.
+  if (_userSelectedPastMonth) return;
   console.info('[V6-C1] Virada de mês detectada:', currentYM, '→', freshYM);
   currentYM = freshYM;
+  _userSelectedPastMonth = false; // virada real — volta ao mês atual normalmente
   // Atualiza o <select> se já existir no DOM
   const sel = document.getElementById('mes-sel');
   if (sel && sel.value !== freshYM) {
@@ -4832,6 +4838,8 @@ function navMes(dir){
 }
 function onMesChange(){
   currentYM=document.getElementById('mes-sel').value;
+  // Marca se o usuário está em um mês diferente do atual para proteger a escolha.
+  _userSelectedPastMonth = (currentYM !== nowYM());
   selectedSeller=null;
   ovRegionalFilter=null;
   lancarSellerFilter=null;
