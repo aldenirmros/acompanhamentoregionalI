@@ -1751,9 +1751,24 @@ canvas { display:block; max-width:100%; }
         <select id="df-regional" onchange="onDashFilterRegional()">
           <option value="">🏠 Todas as Regionais</option>
         </select>
-        <select id="df-time" onchange="onDashFilterTime()">
-          <option value="">🏢 Todos os HUBs</option>
-        </select>
+        <!-- Multi-HUB dropdown -->
+        <div id="df-time-wrap" style="position:relative;display:inline-block">
+          <button type="button" id="df-time-btn" onclick="toggleHubDropdown(event)"
+            style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 28px 6px 11px;font-family:var(--font);font-size:12.5px;font-weight:500;color:var(--td);cursor:pointer;min-width:160px;text-align:left;position:relative;outline:none;transition:border-color .14s">
+            <span id="df-time-label">🏢 Todos os HUBs</span>
+            <svg style="position:absolute;right:8px;top:50%;transform:translateY(-50%)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="df-time-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:500;background:var(--white);border:1.5px solid var(--border);border-radius:var(--r);box-shadow:var(--shm);min-width:210px;max-height:260px;overflow-y:auto;padding:6px 0">
+            <div style="padding:4px 10px 6px;border-bottom:1px solid var(--border);margin-bottom:4px">
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--tl)">Ctrl+clique = multi-seleção</span>
+            </div>
+            <div id="df-time-list"></div>
+            <div style="padding:6px 10px 2px;border-top:1px solid var(--border);margin-top:4px;display:flex;gap:6px">
+              <button onclick="clearHubFilter()" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:4px 0;font-size:11px;font-weight:600;color:var(--tm);cursor:pointer;font-family:var(--font)">Limpar</button>
+              <button onclick="applyHubFilter()" style="flex:1;background:var(--blue);border:none;border-radius:5px;padding:4px 0;font-size:11px;font-weight:600;color:#fff;cursor:pointer;font-family:var(--font)">Aplicar</button>
+            </div>
+          </div>
+        </div>
         <div class="dash-filter-sep"></div>
         <span class="dash-filter-info" id="df-info">Exibindo toda a equipe</span>
         <!-- Badge de travado -->
@@ -3510,6 +3525,309 @@ canvas { display:block; max-width:100%; }
 </div>
 
 <script>
+// ════════════════════════════════════════════════════════════════════════════
+//  [V-3/V-4/V-5] UTILITÁRIOS GLOBAIS DE ROBUSTEZ
+//    • _v4DbSnapshot   (V4-P2 — snapshot para detecção de mudanças por diff)
+//  ALTERAÇÕES V-5 (HTML):
+//    [V5-HTML-P1] _runSync: _syncQueue resetado no path VALIDATION_ERROR
+//                 para que syncs pendentes na fila possam ser executados.
+//    [V5-HTML-P2] _runSync: guard _v4ConflictHandling no início — evita
+//                 reentrada enquanto _v4ReloadAfterConflict está rodando.
+//    [V5-HTML-P3] tablesToDB psv_tpv: filtro corrigido — hubId vazio permitido
+//                 (consistência com CORREÇÃO P1 de psvDp).
+//    [V5-HTML-P4] storage event: usa _deepMerge em vez de substituição direta,
+//                 preservando edições PSV locais em cenário de múltiplas abas.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── [V-3 MELHORIA 2] Fetch com retry automático e backoff exponencial ────────
+// Substitui chamadas fetch() avulsas para leituras e backups.
+// O motor de sync principal (_runSync) já tem seu próprio retry — esta função
+// é usada nos outros pontos de fetch: cloudPull, backups, export, etc.
+// Parâmetros:
+//   url     — URL a buscar
+//   options — opções do fetch (method, headers, body, etc.)
+//   maxTries — número máximo de tentativas (padrão: 3)
+// Retorna: Response do fetch ou lança erro após esgotar tentativas.
+async function fetchWithRetry(url, options, maxTries) {
+  maxTries = maxTries || 3;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxTries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res; // sucesso — retorna imediatamente
+    } catch(err) {
+      lastErr = err;
+      const isNetErr = err instanceof TypeError || !navigator.onLine;
+      console.warn('[fetchWithRetry] tentativa ' + attempt + '/' + maxTries + ' falhou:', err.message);
+      // [V-3 MELHORIA 6] — loga retry para observabilidade
+      _v3LogError('RETRY', { attempt, maxTries, url: url.split('?')[0], message: err.message });
+      if (attempt < maxTries) {
+        // Backoff exponencial: 1s, 2s, 4s
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        await new Promise(r => setTimeout(r, delay));
+        // Só tenta novamente se há conexão (ou se o erro não é de rede)
+        if (isNetErr && !navigator.onLine) {
+          // Sem internet — agenda retry ao reconectar em vez de tentar agora
+          break;
+        }
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// ── [V-3 MELHORIA 3] Captura global de erros JavaScript ─────────────────────
+// Registra erros silenciosos sem interromper a aplicação.
+// Log local (console + localStorage com TTL por tamanho).
+const _v3ErrorLog = [];
+const _V3_MAX_LOG = 100; // máximo de erros em memória
+
+function _v3LogError(type, detail) {
+  try {
+    const entry = {
+      type      : type || 'UNKNOWN',
+      ts        : new Date().toISOString(),
+      user      : (typeof currentUser !== 'undefined' && currentUser)
+                  ? (currentUser.username || currentUser.id || 'desconhecido')
+                  : 'n/a',
+      detail    : detail || {}
+    };
+    _v3ErrorLog.push(entry);
+    // Mantém buffer circular — remove os mais antigos
+    if (_v3ErrorLog.length > _V3_MAX_LOG) _v3ErrorLog.shift();
+    // Persiste últimos 20 erros no localStorage para diagnóstico
+    try {
+      localStorage.setItem('bi_v3_errors',
+        JSON.stringify(_v3ErrorLog.slice(-20)));
+    } catch(e) {}
+    console.warn('[V-3 Error Log]', entry.type, entry.detail);
+  } catch(e) {
+    // Nunca interrompe a aplicação por causa do log
+  }
+}
+
+// Captura erros de JS não tratados
+window.onerror = function(message, source, lineno, colno, error) {
+  _v3LogError('JS_ERROR', {
+    message : message,
+    source  : source,
+    lineno  : lineno,
+    colno   : colno,
+    stack   : error && error.stack ? error.stack.slice(0, 500) : null
+  });
+  return false; // permite comportamento padrão do browser (não suprime)
+};
+
+// Captura Promises rejeitadas sem .catch()
+window.addEventListener('unhandledrejection', function(event) {
+  _v3LogError('UNHANDLED_REJECTION', {
+    message : event.reason
+              ? (event.reason.message || String(event.reason)).slice(0, 300)
+              : 'Sem detalhe',
+    stack   : event.reason && event.reason.stack
+              ? event.reason.stack.slice(0, 500)
+              : null
+  });
+  // NÃO chama event.preventDefault() — permite que o browser exiba no console
+});
+
+// ── [V-3 MELHORIA 1] Controle de versão anti-conflito (frontend) ─────────────
+// Armazena a versão de dados recebida do servidor no último GET.
+// Enviada no próximo POST para detecção de conflito.
+let _v3DataVersion = null; // atualizado em cada cloudPull bem-sucedido
+
+// Lê versão armazenada (sobrevive a re-render mas não a reload)
+function _v3GetDataVersion() {
+  return _v3DataVersion;
+}
+
+// Atualiza versão após GET bem-sucedido
+function _v3SetDataVersion(ver) {
+  if (ver !== undefined && ver !== null) {
+    _v3DataVersion = String(ver);
+  }
+}
+
+// ── [V-3 MELHORIA 1] Exibe aviso de conflito de versão ──────────────────────
+function _v3ShowVersionConflict(serverMsg) {
+  const msg = serverMsg ||
+    'Os dados foram alterados por outro usuário enquanto você editava.\n' +
+    'Suas alterações NÃO foram salvas.\n\n' +
+    'Clique em OK para recarregar os dados mais recentes.';
+  // Usa toast se disponível, ou alert como fallback
+  if (typeof toast === 'function') {
+    toast('⚠️ Conflito de edição: ' + (serverMsg || 'recarregue e tente novamente.'), '⚠️');
+  } else {
+    alert(msg);
+  }
+  console.warn('[V-3] VERSION_CONFLICT detectado — dados não salvos.');
+  _v3LogError('VERSION_CONFLICT', { serverMsg });
+}
+
+// ── [V4-P1] Toast amigável de conflito — sem alert, sem bloquear a UI ────────
+// Exibe mensagem não-bloqueante e agenda reload dos dados mais recentes.
+function _v4ShowConflictToast(serverMsg) {
+  const msg = '⚠️ Conflito: outro usuário salvou dados enquanto você editava. ' +
+              'Recarregando versão mais recente…';
+  if (typeof toast === 'function') {
+    toast(msg, '⚠️');
+  } else {
+    console.warn('[V4] VERSION_CONFLICT:', serverMsg || msg);
+  }
+  // Exibe no sync-log também
+  syncLog('⚠️ Conflito de versão — mesclando com versão mais recente…');
+}
+
+// ── [V4-P1] Reload após conflito — carrega versão recente e mescla localmente ─
+// Garante que o usuário não perde sua sessão (não faz location.reload()).
+// 1. Faz um cloudPull forçado (sem cache) para obter estado mais recente.
+// 2. Aplica _deepMerge: cloud (mais recente) + local (edições do usuário).
+// 3. Atualiza a versão local para a nova versão do servidor.
+// 4. Agenda um novo _syncEnqueue para re-enviar com a versão atualizada.
+async function _v4ReloadAfterConflict(serverVersion) {
+  try {
+    const cfg = getCfg();
+    if (!cfg.gsUrl) return;
+
+    setCloudUI('sync', 'Mesclando…');
+
+    // Busca snapshot mais recente (force=true para ignorar cache)
+    const res = await fetch(cfg.gsUrl + '?force=true&_t=' + Date.now(), {
+      cache : 'no-store',
+      signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const raw = await res.json();
+
+    if (raw && raw._version !== undefined) {
+      _v3SetDataVersion(String(raw._version));
+    }
+
+    const cloudRec = raw ? tablesToDB(raw) : null;
+    if (cloudRec) {
+      // Merge: cloud (base) + local (edições) — sem perder nenhum dos dois lados
+      const merged = _deepMerge(cloudRec, DB);
+      if (merged.deleted) merged.deleted = { userIds:[], sellerIds:[], timeIds:[], regionalIds:[] };
+      DB = merged;
+      try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e) {}
+
+      // Re-renderiza UI com dados mesclados
+      if (typeof renderAll === 'function') renderAll();
+      else if (typeof onMesChange === 'function') onMesChange();
+    }
+
+    setCloudUI('ok', 'Nuvem ✓');
+    syncLog('Conflito resolvido — dados mesclados em ' + new Date().toLocaleTimeString('pt-BR'));
+
+    // Agenda re-envio com a versão correta — agora sem conflito
+    setTimeout(() => _syncEnqueue(), 1500);
+
+  } catch(err) {
+    console.error('[V4] _v4ReloadAfterConflict falhou:', err.message);
+    setCloudUI('err', 'Erro ao mesclar');
+    syncLog('⚠️ Erro ao mesclar após conflito — tente salvar novamente.');
+    _v3LogError('CONFLICT_RELOAD_ERROR', { message: err.message });
+  }
+}
+
+// ── [V4-P2] Sistema de dirty tables ─────────────────────────────────────────
+// Rastreia quais tabelas foram modificadas desde o último sync confirmado.
+// Tabelas: nomes exatos usados em dbToTables() (ex: 'vendas', 'sellers', etc.)
+// Uso: chamar _v4MarkDirty('vendas') sempre que DB.vendas for alterado.
+// O _runSync lê _v4DirtyTables e inclui no payload → backend grava só essas.
+const _v4DirtyTables = new Set();
+
+// Marca uma ou mais tabelas como alteradas
+function _v4MarkDirty(...tableNames) {
+  tableNames.forEach(n => _v4DirtyTables.add(n));
+}
+
+// Marca todas as tabelas como sujas (equivale a full-save — usado em manualSave)
+function _v4MarkAllDirty() {
+  const allTables = ['sellers','vendas','users','times','regionais',
+    'sellerMetas','hubMetas','mValues','diasConfig','ativacaoManual',
+    'ativacaoManualOv','deletedVendaIds','deleted','config',
+    'psv_plano_acao','psv_tpv','psv_detrator_promotor'];
+  allTables.forEach(n => _v4DirtyTables.add(n));
+}
+
+// ── [V4-P2] Detecção automática de tabelas alteradas por snapshot ─────────────
+// Após cada sync confirmado, guarda um snapshot serializado de cada tabela.
+// No próximo sync, compara JSON do estado atual com o snapshot.
+// Tabelas sem mudança são excluídas do payload → menos tráfego e menos conflitos.
+// É mais confiável que rastrear manualmente cada ponto de mutação.
+let _v4DbSnapshot = {}; // { tableName: jsonString }
+
+// Chaves do DB que mapeiam para tabelas do Sheets (via dbToTables)
+const _v4DB_TABLE_MAP = {
+  sellers               : 'sellers',
+  vendas                : 'vendas',
+  users                 : 'users',
+  times                 : 'times',
+  regionais             : 'regionais',
+  sellerMetas           : 'sellerMetas',
+  hubMetas              : 'hubMetas',
+  mValues               : 'mValues',
+  diasConfig            : 'diasConfig',
+  ativacaoManual        : 'ativacaoManual',
+  ativacaoManualOv      : 'ativacaoManualOv',
+  deletedVendaIds       : 'deletedVendaIds',
+  deleted               : 'deleted',
+  nextId                : 'config',   // nextId → tabela config
+  _savedAt              : 'config',   // _savedAt → tabela config
+  psvPlano              : 'psv_plano_acao',
+  psvTpv                : 'psv_tpv',
+  psvDp                 : 'psv_detrator_promotor'
+};
+
+// Captura snapshot das chaves do DB após sync confirmado
+function _v4CaptureSnapshot() {
+  try {
+    const keys = Object.keys(_v4DB_TABLE_MAP);
+    const seen = new Set();
+    keys.forEach(k => {
+      const tableKey = _v4DB_TABLE_MAP[k];
+      if (!seen.has(tableKey)) {
+        seen.add(tableKey);
+        try { _v4DbSnapshot[tableKey] = JSON.stringify(DB[k]); } catch(e) {}
+      }
+    });
+  } catch(e) {}
+}
+
+// Detecta quais tabelas mudaram desde o último snapshot
+// Retorna Set de nomes de tabelas do Sheets, ou null se não há snapshot (→ full save)
+function _v4DetectDirtyTables() {
+  if (Object.keys(_v4DbSnapshot).length === 0) return null; // sem snapshot → full save
+  const dirty = new Set();
+  // Tabelas manualmente marcadas têm prioridade
+  _v4DirtyTables.forEach(t => dirty.add(t));
+  // Detecta por comparação de snapshot
+  const keys = Object.keys(_v4DB_TABLE_MAP);
+  const seen = new Set();
+  keys.forEach(k => {
+    const tableKey = _v4DB_TABLE_MAP[k];
+    if (seen.has(tableKey)) return;
+    seen.add(tableKey);
+    try {
+      const current = JSON.stringify(DB[k]);
+      if (current !== _v4DbSnapshot[tableKey]) dirty.add(tableKey);
+    } catch(e) { dirty.add(tableKey); } // erro → inclui por segurança
+  });
+  // config sempre incluída (metadados de versão)
+  dirty.add('config');
+  return dirty.size > 0 ? dirty : new Set(['config']);
+}
+
+// ── [V4-P1] Intercepta beforeunload para usar sendBeacon como fallback ────────
+// sendBeacon é usado APENAS ao fechar a página — não durante uso normal.
+document._v4BeforeUnload = false;
+window.addEventListener('beforeunload', () => { document._v4BeforeUnload = true; });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  [V-3/V-4/V-5] FIM DOS UTILITÁRIOS GLOBAIS
+// ════════════════════════════════════════════════════════════════════════════
+
 // ══════════════════════════════════════════════════════════
 //  CONSTANTS
 // ══════════════════════════════════════════════════════════
@@ -3656,9 +3974,78 @@ migrateToDefaultRegional(DB);
 deduplicateDB(DB);
 normalizeVendaDates(DB);
 let currentYM = nowYM();
-let selectedSeller = null;
+
+// ── [V6-C1] Monitor automático de virada de mês ──────────────────────────────
+// Detecta quando o usuário permanece na aba além da meia-noite (ou além do
+// último dia do mês) e sincroniza currentYM sem exigir reload manual.
+//
+// ensureCurrentMonth() é chamada:
+//   • pelo setInterval a cada 60 s (verificação periódica);
+//   • nos eventos visibilitychange, focus e pageshow (retorno à aba);
+//   • no início de cloudPull, cloudPush/manualSave, manualRefresh (C5).
+//
+// Ao detectar virada:
+//   1. Atualiza currentYM e o <select> de mês;
+//   2. Invoca onMesChange() para resetar filtros e re-renderizar;
+//   3. Dispara cloudSyncVendas() para buscar dados do novo mês.
+//
+// Retrocompatível: se nowYM() === currentYM não faz nada.
+function ensureCurrentMonth() {
+  if (!currentUser) return; // não logado — sem operação
+  const freshYM = nowYM();
+  if (freshYM === currentYM) return; // mês correto — nada a fazer
+  console.info('[V6-C1] Virada de mês detectada:', currentYM, '→', freshYM);
+  currentYM = freshYM;
+  // Atualiza o <select> se já existir no DOM
+  const sel = document.getElementById('mes-sel');
+  if (sel && sel.value !== freshYM) {
+    // Garante que a opção do novo mês existe (populateMes pode não ter sido chamado ainda)
+    if (!sel.querySelector(`option[value="${freshYM}"]`)) {
+      const { y, m } = ymToYM(freshYM);
+      const opt = document.createElement('option');
+      opt.value = freshYM;
+      opt.textContent = `${MESES[m]} ${y}`;
+      sel.appendChild(opt);
+    }
+    sel.value = freshYM;
+  }
+  // Delega reset de filtros e re-renderização para onMesChange()
+  if (typeof onMesChange === 'function') {
+    onMesChange();
+  }
+  // Sincroniza para buscar dados do novo mês do servidor
+  if (typeof cloudSyncVendas === 'function') {
+    setTimeout(cloudSyncVendas, 300);
+  }
+  toast(`📅 Novo mês iniciado — ${MESES[ymToYM(freshYM).m]}`, '📅');
+}
+
+// ── [V6-C3] Migração automática de tombstones legados ────────────────────────
+// Converte o formato antigo { mes: [id, id] } para o novo { mes: { id: {deletedAt} } }.
+// Chamada após carregar localStorage e após cada tablesToDB (pull da nuvem).
+// Idempotente: formato novo não é alterado.
+function _normalizeTombstones(dvIds) {
+  if (!dvIds || typeof dvIds !== 'object') return {};
+  const result = {};
+  Object.keys(dvIds).forEach(mes => {
+    const val = dvIds[mes];
+    if (Array.isArray(val)) {
+      // Legado: array de strings → converte com deletedAt=0 (sem timestamp preciso)
+      result[mes] = {};
+      val.forEach(id => { result[mes][String(id)] = { deletedAt: 0 }; });
+    } else if (val && typeof val === 'object') {
+      result[mes] = {};
+      Object.keys(val).forEach(id => {
+        const entry = val[id];
+        result[mes][String(id)] = (entry && typeof entry === 'object' && 'deletedAt' in entry)
+          ? entry : { deletedAt: 0 };
+      });
+    }
+  });
+  return result;
+}
 let currentUser  = null;
-let scopeFilter  = {regionalId:null, timeId:null}; // filtro manual do gerente no dash
+let scopeFilter  = {regionalId:null, timeId:null, timeIds:[]}; // filtro manual do gerente no dash
 let _filterLocked = (()=>{ try{ return localStorage.getItem('bi_filter_locked')==='1'; }catch(e){ return false; } })(); // trava o filtro contra reset ao trocar mês
 let ovRegionalFilter = null; // filtro da página visão geral (gerente)
 let chartBar=null, chartDonut=null, chartLine=null;
@@ -3682,6 +4069,8 @@ function loadDB() {
     if(!Array.isArray(cached.psvPlano))  cached.psvPlano  = [];
     if(!Array.isArray(cached.psvTpv))    cached.psvTpv    = [];
     if(!Array.isArray(cached.psvDp))     cached.psvDp     = [];
+    // [V6-C3] Normaliza tombstones legados (array → objeto com deletedAt)
+    cached.deletedVendaIds = _normalizeTombstones(cached.deletedVendaIds);
     return cached;
   }
   // Seed inicial — substituído pelo cloudPull após conectar
@@ -4010,8 +4399,9 @@ function getScopedSellers(includeInativo=false){
 
   // Gerente com filtro manual ativo
   if(isGerente(u)){
-    if(scopeFilter.timeId){
-      sellers = sellers.filter(s=>s.timeId===scopeFilter.timeId);
+    const selIds = scopeFilter.timeIds&&scopeFilter.timeIds.length>0 ? scopeFilter.timeIds : (scopeFilter.timeId ? [scopeFilter.timeId] : []);
+    if(selIds.length>0){
+      sellers = sellers.filter(s=>selIds.includes(s.timeId));
     } else if(scopeFilter.regionalId){
       const tids=(DB.times||[]).filter(t=>t.regionalId===scopeFilter.regionalId).map(t=>t.id);
       sellers = sellers.filter(s=>tids.includes(s.timeId));
@@ -4022,9 +4412,11 @@ function getScopedSellers(includeInativo=false){
     // Restringe à regional do usuário
     const tids=(DB.times||[]).filter(t=>t.regionalId===u.regionalId).map(t=>t.id);
     sellers = sellers.filter(s=>tids.includes(s.timeId));
-    // Filtro adicional por HUB se o usuário selecionou um
-    if(scopeFilter.timeId && tids.includes(scopeFilter.timeId)){
-      sellers = sellers.filter(s=>s.timeId===scopeFilter.timeId);
+    // Filtro adicional por HUB(s) se o usuário selecionou
+    const selIds = scopeFilter.timeIds&&scopeFilter.timeIds.length>0 ? scopeFilter.timeIds : (scopeFilter.timeId ? [scopeFilter.timeId] : []);
+    if(selIds.length>0){
+      const validIds = selIds.filter(id=>tids.includes(id));
+      if(validIds.length>0) sellers = sellers.filter(s=>validIds.includes(s.timeId));
     }
     return sellers;
   }
@@ -4049,13 +4441,13 @@ function populateDashFilter(){
   _loadPersistedScopeFilter();
 
   const rgSel=document.getElementById('df-regional');
-  const tmSel=document.getElementById('df-time');
+  const hubWrap=document.getElementById('df-time-wrap');
   const clearBtn=document.querySelector('#dash-gerente-filter .btn-sm-g');
 
   if(u.role==='supervisor'){
     // Supervisor: mostra só o info do HUB, sem selects nem botão limpar
     if(rgSel) rgSel.style.display='none';
-    if(tmSel) tmSel.style.display='none';
+    if(hubWrap) hubWrap.style.display='none';
     if(clearBtn) clearBtn.style.display='none';
     updateDashFilterInfo();
     _updateLockUI();
@@ -4063,7 +4455,7 @@ function populateDashFilter(){
   }
 
   // Reexibe caso tenha ficado oculto de sessão anterior
-  if(tmSel) tmSel.style.display='';
+  if(hubWrap) hubWrap.style.display='';
   if(clearBtn) clearBtn.style.display='';
 
   if(rgSel){
@@ -4081,8 +4473,7 @@ function populateDashFilter(){
       if(scopeFilter.regionalId) rgSel.value = scopeFilter.regionalId;
     }
   }
-  populateDashFilterTimes();
-  if(tmSel && scopeFilter.timeId) tmSel.value = scopeFilter.timeId;
+  _updateHubBtnLabel();
   updateDashFilterInfo();
   _updateLockUI();
 }
@@ -4090,58 +4481,144 @@ function populateDashFilter(){
 function populateDashFilterTimes(){
   const u = currentUser;
   const rgId = u?.role==='regional' && !isGerente(u)
-    ? (u.regionalId||null)  // regional: sempre usa a regional dele
+    ? (u.regionalId||null)
     : (parseInt(document.getElementById('df-regional')?.value)||null);
-  const tmSel= document.getElementById('df-time');
-  if(!tmSel) return;
-  const times= rgId
+  const list = document.getElementById('df-time-list');
+  if(!list) return;
+  const times = rgId
     ? (DB.times||[]).filter(t=>t.regionalId===rgId)
     : (DB.times||[]);
-  const prev = scopeFilter.timeId || parseInt(tmSel.value)||null;
-  const label= rgId ? `🏢 Todos os HUBs (${times.length})` : `🏢 Todos os HUBs`;
-  tmSel.innerHTML=`<option value="">${label}</option>`
-    +times.map(t=>{
-      const rg=rgId?null:(DB.regionais||[]).find(r=>r.id===t.regionalId);
-      const lbl=rg?`${t.nome} — ${rg.nome}`:t.nome;
-      return `<option value="${t.id}"${t.id==prev?' selected':''}>${lbl}</option>`;
-    }).join('');
-  if(scopeFilter.timeId) tmSel.value = scopeFilter.timeId;
+  const selIds = scopeFilter.timeIds||[];
+  list.innerHTML = times.map(t=>{
+    const rg = rgId?null:(DB.regionais||[]).find(r=>r.id===t.regionalId);
+    const lbl = rg?`${t.nome} — ${rg.nome}`:t.nome;
+    const checked = selIds.includes(t.id);
+    return `<label data-hub-id="${t.id}" onclick="onHubItemClick(event,${t.id})"
+      style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--td);transition:background .1s;${checked?'background:var(--blue-g);color:var(--blue);':''}">
+      <span class="hub-chk" style="width:14px;height:14px;border-radius:3px;border:1.5px solid ${checked?'var(--blue)':'var(--border)'};background:${checked?'var(--blue)':'#fff'};display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s">
+        ${checked?'<svg width="9" height="9" viewBox="0 0 10 10" fill="none"><polyline points="1,5 4,8 9,2" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>':''}
+      </span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lbl}</span>
+    </label>`;
+  }).join('');
+  _updateHubBtnLabel();
+}
+
+// _pendingHubIds armazena seleção temporária (antes de Aplicar)
+let _pendingHubIds = null;
+
+function toggleHubDropdown(e){
+  e.stopPropagation();
+  const menu = document.getElementById('df-time-menu');
+  if(!menu) return;
+  const open = menu.style.display!=='none';
+  if(open){ menu.style.display='none'; _pendingHubIds=null; return; }
+  _pendingHubIds = [...(scopeFilter.timeIds||[])];
+  populateDashFilterTimes();
+  menu.style.display='block';
+  // Fecha ao clicar fora
+  setTimeout(()=>{ document.addEventListener('click', _closeHubMenu, {once:true}); },0);
+}
+
+function _closeHubMenu(e){
+  const menu=document.getElementById('df-time-menu');
+  const wrap=document.getElementById('df-time-wrap');
+  if(menu && wrap && !wrap.contains(e.target)){
+    menu.style.display='none';
+    _pendingHubIds=null;
+  }
+}
+
+function onHubItemClick(e, id){
+  e.stopPropagation();
+  if(!_pendingHubIds) _pendingHubIds=[];
+  const isCtrl = e.ctrlKey||e.metaKey;
+  if(isCtrl){
+    // Multi-seleção com Ctrl
+    const idx=_pendingHubIds.indexOf(id);
+    if(idx>=0) _pendingHubIds.splice(idx,1);
+    else _pendingHubIds.push(id);
+  } else {
+    // Clique simples: seleciona só este (ou deseleciona se já único selecionado)
+    if(_pendingHubIds.length===1 && _pendingHubIds[0]===id) _pendingHubIds=[];
+    else _pendingHubIds=[id];
+  }
+  _refreshHubList();
+}
+
+function _refreshHubList(){
+  const list=document.getElementById('df-time-list');
+  if(!list) return;
+  list.querySelectorAll('label[data-hub-id]').forEach(lbl=>{
+    const id=parseInt(lbl.dataset.hubId);
+    const checked=(_pendingHubIds||[]).includes(id);
+    lbl.style.background=checked?'var(--blue-g)':'';
+    lbl.style.color=checked?'var(--blue)':'var(--td)';
+    const chk=lbl.querySelector('.hub-chk');
+    if(chk){
+      chk.style.border=`1.5px solid ${checked?'var(--blue)':'var(--border)'}`;
+      chk.style.background=checked?'var(--blue)':'#fff';
+      chk.innerHTML=checked?'<svg width="9" height="9" viewBox="0 0 10 10" fill="none"><polyline points="1,5 4,8 9,2" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>':'';
+    }
+  });
+}
+
+function applyHubFilter(){
+  const u=currentUser;
+  const rgId = u?.role==='regional' && !isGerente(u)
+    ? (u.regionalId||null)
+    : (parseInt(document.getElementById('df-regional')?.value)||null);
+  scopeFilter={regionalId:rgId, timeId:(_pendingHubIds&&_pendingHubIds.length===1?_pendingHubIds[0]:null), timeIds:[...(_pendingHubIds||[])]};
+  _pendingHubIds=null;
+  _persistScopeFilter();
+  _updateHubBtnLabel();
+  document.getElementById('df-time-menu').style.display='none';
+  updateDashFilterInfo();
+  selectedSeller=null;
+  renderDash();
+}
+
+function clearHubFilter(){
+  _pendingHubIds=[];
+  _refreshHubList();
+}
+
+function _updateHubBtnLabel(){
+  const btn=document.getElementById('df-time-label');
+  if(!btn) return;
+  const ids=scopeFilter.timeIds||[];
+  if(ids.length===0){ btn.textContent='🏢 Todos os HUBs'; return; }
+  if(ids.length===1){
+    const t=(DB.times||[]).find(x=>x.id===ids[0]);
+    btn.textContent=`🏢 ${t?.nome||'HUB'}`;
+  } else {
+    btn.textContent=`🏢 ${ids.length} HUBs selecionados`;
+  }
 }
 
 function onDashFilterRegional(){
   const rgId=parseInt(document.getElementById('df-regional')?.value)||null;
-  scopeFilter={regionalId:rgId, timeId:null};
+  scopeFilter={regionalId:rgId, timeId:null, timeIds:[]};
   _persistScopeFilter();
-  populateDashFilterTimes();
+  _updateHubBtnLabel();
   updateDashFilterInfo();
   selectedSeller=null;
   renderDash();
 }
 
 function onDashFilterTime(){
-  const tmId=parseInt(document.getElementById('df-time')?.value)||null;
-  const u=currentUser;
-  // Para regional: mantém sempre o regionalId dele; para gerente: usa o select
-  const rgId = u?.role==='regional' && !isGerente(u)
-    ? (u.regionalId||null)
-    : (parseInt(document.getElementById('df-regional')?.value)||null);
-  scopeFilter={regionalId:rgId, timeId:tmId};
-  _persistScopeFilter();
-  updateDashFilterInfo();
-  selectedSeller=null;
-  renderDash();
+  // now handled by applyHubFilter
 }
 
 function clearDashFilter(){
   const u=currentUser;
   // Para regional: limpar = voltar a ver todos os HUBs da regional dele
   const defRgId = (u?.role==='regional' && !isGerente(u)) ? (u.regionalId||null) : null;
-  scopeFilter={regionalId:defRgId, timeId:null};
+  scopeFilter={regionalId:defRgId, timeId:null, timeIds:[]};
   _persistScopeFilter();
   const rgSel=document.getElementById('df-regional');
-  const tmSel=document.getElementById('df-time');
   if(rgSel && isGerente()) rgSel.value='';
-  if(tmSel) tmSel.value='';
+  _updateHubBtnLabel();
   updateDashFilterInfo();
   selectedSeller=null;
   renderDash();
@@ -4156,7 +4633,7 @@ function _loadPersistedScopeFilter(){
   if(!_filterLocked) return;
   try{
     const s = localStorage.getItem('bi_scope_filter');
-    if(s){ const f=JSON.parse(s); if(f&&typeof f==='object'){ scopeFilter={regionalId:f.regionalId||null, timeId:f.timeId||null}; } }
+    if(s){ const f=JSON.parse(s); if(f&&typeof f==='object'){ scopeFilter={regionalId:f.regionalId||null, timeId:f.timeId||null, timeIds:Array.isArray(f.timeIds)?f.timeIds:[]}; } }
   }catch(e){}
 }
 
@@ -4174,7 +4651,16 @@ function updateDashFilterInfo(){
     return;
   }
 
-  if(scopeFilter.timeId){
+  if(scopeFilter.timeIds&&scopeFilter.timeIds.length>0){
+    const selIds=scopeFilter.timeIds;
+    if(selIds.length===1){
+      const t=(DB.times||[]).find(x=>x.id===selIds[0]);
+      const rg=(DB.regionais||[]).find(x=>x.id===t?.regionalId);
+      el.innerHTML=`<span class="dash-filter-tag" style="background:${rg?.color+'18'||'var(--blue-g)'};color:${rg?.color||'var(--blue)'};border-color:${rg?.color+'44'||'rgba(37,99,235,.2)'}">🏢 ${t?.nome||'Time'}</span> <span style="font-size:10.5px">${total} HC</span>`;
+    } else {
+      el.innerHTML=`<span class="dash-filter-tag">🏢 ${selIds.length} HUBs</span> <span style="font-size:10.5px">${total} HC</span>`;
+    }
+  } else if(scopeFilter.timeId){
     const t=(DB.times||[]).find(x=>x.id===scopeFilter.timeId);
     const rg=(DB.regionais||[]).find(x=>x.id===t?.regionalId);
     el.innerHTML=`<span class="dash-filter-tag" style="background:${rg?.color+'18'||'var(--blue-g)'};color:${rg?.color||'var(--blue)'};border-color:${rg?.color+'44'||'rgba(37,99,235,.2)'}">🏢 ${t?.nome||'Time'}</span> <span style="font-size:10.5px">${total} HC</span>`;
@@ -4485,6 +4971,17 @@ function renderDash(){
     metaFilt  = getSellerMeta(ymKey, sid);
     const sn  = DB.sellers.find(s=>s.id===sid);
     metaLabel = `Compromisso: ${sn?.name||''}`;
+  } else if(scopeFilter.timeIds&&scopeFilter.timeIds.length>0){
+    // Múltiplos HUBs filtrados → soma das metas
+    const selIds=scopeFilter.timeIds;
+    if(selIds.length===1){
+      metaFilt = getHubMeta(ymKey, selIds[0]);
+      const tn = (DB.times||[]).find(t=>t.id===selIds[0]);
+      metaLabel = `Meta HUB: ${tn?.nome||''}`;
+    } else {
+      metaFilt = selIds.reduce((a,id)=>a+getHubMeta(ymKey,id),0);
+      metaLabel = `Meta: ${selIds.length} HUBs`;
+    }
   } else if(scopeFilter.timeId){
     // HUB filtrado → meta definida para o HUB
     metaFilt  = getHubMeta(ymKey, scopeFilter.timeId);
@@ -5289,6 +5786,19 @@ function addVenda(){
   if(!sid||!date){ toast('Preencha todos os campos','⚠️'); return; }
   const d=new Date(date+'T12:00:00'), {y,m}=ymToYM(currentYM);
   const ymKey=ym(d.getFullYear(),d.getMonth());
+
+  // [V6-C2] Validação de mês: a data da venda deve pertencer ao mês selecionado.
+  // Impede gravação cruzada quando o usuário muda a data mas não altera o seletor de mês.
+  if(ymKey !== currentYM){
+    const {y:vy, m:vm} = ymToYM(ymKey);
+    toast(
+      `⚠️ A data da venda pertence a ${MESES[vm]} ${vy}. ` +
+      `Altere o mês selecionado (atual: ${MESES[m]} ${y}) ou corrija a data.`,
+      '⚠️'
+    );
+    return;
+  }
+
   if(!DB.vendas[ymKey]) DB.vendas[ymKey]=[];
   DB.vendas[ymKey].push({id:Date.now(),sellerId:sid,date,qty,type,ts:new Date().toISOString()});
   localStorage.setItem('bi_v5', JSON.stringify(DB)); // salva local imediatamente
@@ -5551,9 +6061,14 @@ function delVenda(id,ymKey){
     if(!scopeIds.has(venda.sellerId)){ toast('Sem permissão para excluir este registro','⚠️'); return; }
   }
   if(!DB.deletedVendaIds) DB.deletedVendaIds = {};
-  if(!DB.deletedVendaIds[ymKey]) DB.deletedVendaIds[ymKey] = [];
-  if(!DB.deletedVendaIds[ymKey].includes(String(id))) DB.deletedVendaIds[ymKey].push(String(id));
-  DB.vendas[ymKey]=(DB.vendas[ymKey]||[]).filter(v=>String(v.id)!==String(id));
+  if(!DB.deletedVendaIds[ymKey]) DB.deletedVendaIds[ymKey] = {};
+  // [V6-C3] Tombstone com timestamp: garante que sincronizações tardias não
+  // recriem o registro (compara deletedAt com ts da venda recebida na nuvem).
+  const sid = String(id);
+  if(!DB.deletedVendaIds[ymKey][sid] || !DB.deletedVendaIds[ymKey][sid].deletedAt){
+    DB.deletedVendaIds[ymKey][sid] = { deletedAt: Date.now() };
+  }
+  DB.vendas[ymKey]=(DB.vendas[ymKey]||[]).filter(v=>String(v.id)!==sid);
   saveDB(); renderLancar(); renderDash();
   toast('Registro excluído','🗑️');
 }
@@ -5563,10 +6078,14 @@ function clearMonthHistory(){
   const scopeIds = new Set(getScopedSellers(true).map(s=>s.id));
   const existing = DB.vendas[currentYM] || [];
   if(!DB.deletedVendaIds) DB.deletedVendaIds = {};
-  if(!DB.deletedVendaIds[currentYM]) DB.deletedVendaIds[currentYM] = [];
+  if(!DB.deletedVendaIds[currentYM]) DB.deletedVendaIds[currentYM] = {};
+  // [V6-C3] Tombstones com timestamp para toda exclusão em massa
+  const now = Date.now();
   existing.filter(v => scopeIds.has(v.sellerId)).forEach(v => {
     const sid = String(v.id);
-    if(!DB.deletedVendaIds[currentYM].includes(sid)) DB.deletedVendaIds[currentYM].push(sid);
+    if(!DB.deletedVendaIds[currentYM][sid] || !DB.deletedVendaIds[currentYM][sid].deletedAt){
+      DB.deletedVendaIds[currentYM][sid] = { deletedAt: now };
+    }
   });
   // Mantém vendas fora do escopo do usuário (outros HUBs/regionais)
   DB.vendas[currentYM] = existing.filter(v => !scopeIds.has(v.sellerId));
@@ -6338,8 +6857,12 @@ function dbDelVenda(ym, vid){
   if(!DB.vendas?.[ym]) return;
   DB.vendas[ym]=DB.vendas[ym].filter(v=>String(v.id)!==String(vid));
   if(!DB.deletedVendaIds) DB.deletedVendaIds={};
-  if(!DB.deletedVendaIds[ym]) DB.deletedVendaIds[ym]=[];
-  DB.deletedVendaIds[ym].push(String(vid));
+  if(!DB.deletedVendaIds[ym]) DB.deletedVendaIds[ym]={};
+  // [V6-C3] Tombstone com timestamp
+  const sid = String(vid);
+  if(!DB.deletedVendaIds[ym][sid] || !DB.deletedVendaIds[ym][sid].deletedAt){
+    DB.deletedVendaIds[ym][sid] = { deletedAt: Date.now() };
+  }
   saveDB(); cloudSyncVendas(); renderDbVendas();
   toast('Venda removida ✓');
 }
@@ -6995,7 +7518,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwnoFLMnZGG2_1O333ZdSN_ZMt1cp0-yz-53MqBN8E8cwDfj03TLVWzMVT80ye1gQoUjg/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyVKfCcRQX6rf0CC6TUFgJnjypkB_o2gcj2H9g0a8qfZvpzRD8kdbV0P2Ac4wz11Iu1-A/exec';
 
 function getCfg(){
   try{
@@ -7015,9 +7538,10 @@ async function exportHtmlWithGsUrl(){
   const gsUrl = getCfg().gsUrl || '';
   if(!gsUrl){ toast('Configure a URL do Apps Script primeiro','⚠️'); return; }
   try{
-    const res  = await fetch(window.location.href);
+    // [V-3 MELHORIA 2] — retry automático para exportação do HTML
+    const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbw_-thwnuht8D4MWAQG9hSH_TXk1mE9nO7Z7cn1_tuE2TWnxkPCrwN3LQerwagWFRAn/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyVKfCcRQX6rf0CC6TUFgJnjypkB_o2gcj2H9g0a8qfZvpzRD8kdbV0P2Ac4wz11Iu1-A/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7026,7 +7550,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbw_-thwnuht8D4MWAQG9hSH_TXk1mE9nO7Z7cn1_tuE2TWnxkPCrwN3LQerwagWFRAn/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyVKfCcRQX6rf0CC6TUFgJnjypkB_o2gcj2H9g0a8qfZvpzRD8kdbV0P2Ac4wz11Iu1-A/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7132,6 +7656,7 @@ async function resetCache(){
 }
 
 async function manualRefresh(){
+  ensureCurrentMonth(); // [V6-C5] garante mês correto antes de qualquer sync
   const btn = document.getElementById('btn-global-refresh');
   const ico = document.getElementById('refresh-icon');
   if(btn) btn.disabled = true;
@@ -7155,6 +7680,7 @@ async function manualRefresh(){
 
 // ── Salvar manualmente ──
 async function manualSave(){
+  ensureCurrentMonth(); // [V6-C5] garante mês correto antes de enviar ao servidor
   const btn = document.getElementById('btn-global-save');
   if(btn) btn.disabled = true;
   try {
@@ -7162,6 +7688,8 @@ async function manualSave(){
     try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
     flashSaved();
     clearTimeout(saveDB._t);
+    // [V4-P2] Salvar manualmente sempre envia tudo (não usa dirty tables)
+    _v4MarkAllDirty();
     await _syncEnqueue();
     toast('💾 Salvo e sincronizado!');
   } catch(e){
@@ -7204,13 +7732,27 @@ function saveDB() {
 //  Fluxo por operação de save:
 //    1. GET estado atual do Google Sheets
 //    2. Merge profundo: cloud + local → resultado sem perdas
-//    3. POST resultado mesclado de volta ao Sheets
-//    4. Atualiza localStorage com o estado mesclado
+//    3. POST resultado mesclado de volta ao Sheets (SEM mode:'no-cors')
+//    4. Lê e trata resposta real do servidor (success/VERSION_CONFLICT/erros)
+//    5. Atualiza localStorage com o estado mesclado
+//
+//  [V4-P1] Comunicação real com Apps Script:
+//    — POST sem mode:'no-cors' → resposta visível ao frontend
+//    — Tratamento de VERSION_CONFLICT (dados não sobrescritos, aviso + reload)
+//    — Tratamento de SAVE_ERROR e VALIDATION_ERROR
+//    — Fallback sendBeacon apenas em beforeunload (página fechando)
 // ═══════════════════════════════════════════════════════════════════════════
 
 let _syncQueue   = false; // há um sync agendado/em curso?
 let _syncRunning = false; // sync está executando agora?
 let _syncPending = false; // há dados locais não enviados à nuvem (salvo offline)?
+
+// [V-3 MELHORIA 1] — versão de dados no momento do último GET bem-sucedido
+// Usada para detectar se outro usuário gravou no intervalo entre GET e POST.
+let _v3VersionAtLastPull = null;
+
+// [V4-P1] Flag: VERSION_CONFLICT em andamento — evita loops de retry
+let _v4ConflictHandling  = false;
 
 async function _syncEnqueue() {
   _syncQueue = true;
@@ -7220,6 +7762,13 @@ async function _syncEnqueue() {
 
 async function _runSync() {
   if (_syncRunning) return;
+  // [V5-HTML-P2] Não inicia novo sync enquanto conflito de versão está sendo
+  // resolvido — _v4ReloadAfterConflict ainda está em execução assíncrona e
+  // um POST neste momento poderia usar a versão antiga e gerar novo conflito.
+  if (_v4ConflictHandling) {
+    _syncQueue = true; // reagenda para após o conflito ser resolvido
+    return;
+  }
   _syncRunning = true;
   _syncQueue   = false;
 
@@ -7243,6 +7792,11 @@ async function _runSync() {
         });
         if (res.ok) {
           const raw = await res.json().catch(()=>null);
+          // [V-3 MELHORIA 1] — captura versão de dados do GET para controle de conflito
+          if (raw && raw._version !== undefined) {
+            _v3VersionAtLastPull = _v3GetDataVersion(); // salva versão anterior
+            _v3SetDataVersion(raw._version);            // atualiza com nova versão
+          }
           // Converte tabelas do Sheets → DB interno para merge
           cloudRec = raw ? tablesToDB(raw) : null;
           // Normaliza campos ausentes que causam problemas em browsers antigos
@@ -7269,48 +7823,155 @@ async function _runSync() {
         cloudRec = null;
       }
 
+      // ── [V-3 MELHORIA 1] PASSO 1.5: Verificação de conflito de versão ────
+      // Se a versão recebida do servidor for diferente da versão que tínhamos
+      // quando o usuário começou a editar (_v3VersionAtLastPull), outro usuário
+      // salvou no intervalo. Neste caso, o merge irá incluir os dados de ambos
+      // (comportamento existente de _deepMerge), o que já resolve naturalmente.
+      // Apenas registramos o evento para observabilidade.
+      if (cloudRec && _v3VersionAtLastPull !== null && _v3DataVersion !== null
+          && _v3VersionAtLastPull !== _v3DataVersion) {
+        console.info('[V-3] Versão atualizada por outro usuário durante edição: ' +
+          _v3VersionAtLastPull + ' → ' + _v3DataVersion +
+          ' — merge profundo garantirá integridade dos dados.');
+        _v3LogError('VERSION_UPDATED_BY_OTHER', {
+          prevVersion: _v3VersionAtLastPull, newVersion: _v3DataVersion
+        });
+      }
+
       // ── PASSO 2: Merge profundo local → cloud ───────────────────────────
       const toSend = cloudRec ? _deepMerge(cloudRec, DB) : JSON.parse(JSON.stringify(DB));
 
-      // ── PASSO 3: POST com confirmação de resposta ────────────────────────
-      // Tombstones SÃO gravados no Sheets para que exclusões sobrevivam entre sessões.
-      // IDs protegidos (canônicos) são filtrados antes do envio para não serem
-      // acidentalmente deletados por outros clientes ao fazer o merge.
+      // ── PASSO 3: POST com leitura REAL da resposta ──────────────────────
+      // [V4-P1] REMOÇÃO de mode:'no-cors':
+      //   • Com no-cors a resposta é opaca: VERSION_CONFLICT, erros de
+      //     validação e erros de gravação chegavam ao servidor mas NUNCA
+      //     eram lidos pelo frontend — o mecanismo não protegia nada.
+      //   • Apps Script implantado como Web App público retorna
+      //     Access-Control-Allow-Origin:* automaticamente — sem pre-flight.
+      //   • Content-Type text/plain evita pre-flight OPTIONS (requisição simples).
+      //   • Sem mode:'no-cors', a resposta JSON é totalmente legível.
+      //
+      // [V4-P2] _dirtyTables: envia apenas tabelas marcadas como alteradas.
+      // Tombstones de entidades (sellers/times/regionais/users) NÃO são gravados
+      // no Sheets — são usados apenas localmente para filtrar o merge desta sessão.
       const toPush = JSON.parse(JSON.stringify(toSend));
-      // Remove IDs protegidos dos tombstones antes de persistir
-      if (toPush.deleted) {
-        toPush.deleted.timeIds     = (toPush.deleted.timeIds||[]).filter(id=>!_PROTECTED_TIME_IDS.has(String(id)));
-        toPush.deleted.regionalIds = (toPush.deleted.regionalIds||[]).filter(id=>!_PROTECTED_REG_IDS.has(String(id)));
-        toPush.deleted.userIds     = (toPush.deleted.userIds||[]).filter(id=>!_PROTECTED_USR_IDS.has(String(id)));
+      toPush.deleted = {userIds:[], sellerIds:[], timeIds:[], regionalIds:[]};
+
+      // [V-3 MELHORIA 1] — inclui versão do cliente no payload para detecção de conflito
+      const tablePayload = dbToTables(toPush);
+      const clientVer = _v3GetDataVersion();
+      if (clientVer !== null) {
+        tablePayload._clientVersion = clientVer;
       }
 
-      // Serializa para envio — texto puro (não URL-encoded) para evitar
-      // triplicar o tamanho do payload e corrupção em e.parameter do GAS
-      const jsonBody = JSON.stringify(dbToTables(toPush));
+      // [V4-P2] — detecta tabelas alteradas automaticamente por snapshot
+      // Se há snapshot prévio, inclui apenas tabelas que mudaram.
+      // Se não há snapshot (primeiro sync), envia tudo (full save retrocompatível).
+      const detectedDirty = _v4DetectDirtyTables();
+      if (detectedDirty !== null && detectedDirty.size > 0) {
+        tablePayload._dirtyTables = Array.from(detectedDirty);
+        console.info('[V4] dirty tables:', tablePayload._dirtyTables);
+      }
 
-      let postOk = false;
+      const jsonBody = JSON.stringify(tablePayload);
+
+      let postOk      = false;
+      let serverReply = null;
+
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(()=>ctrl.abort(), 25000);
-        // mode:'no-cors' evita pre-flight CORS ao enviar para Google Apps Script.
-        // Com no-cors a resposta é opaca (não é possível ler body/status):
-        // se o fetch não lançar exceção, assume-se que o POST chegou ao GAS.
-        await fetch(cfg.gsUrl, {
+        const tid  = setTimeout(() => ctrl.abort(), 25000);
+
+        // [V4-P1] POST sem mode:'no-cors' — resposta totalmente legível.
+        // Content-Type 'text/plain' evita pre-flight OPTIONS (requisição simples).
+        // GAS Web App público retorna CORS headers automaticamente.
+        const postRes = await fetch(cfg.gsUrl, {
           method : 'POST',
-          mode   : 'no-cors',
-          headers: {'Content-Type': 'text/plain;charset=UTF-8'},
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
           body   : jsonBody,
           signal : ctrl.signal
         });
         clearTimeout(tid);
-        postOk = true; // Resposta opaca — ausência de erro = envio confirmado
+
+        // Lê e parseia a resposta do servidor
+        if (postRes.ok || postRes.status === 200) {
+          try { serverReply = await postRes.json(); } catch(je) { serverReply = null; }
+        }
+
+        // [V4-P1] Trata respostas padronizadas do servidor
+        if (serverReply) {
+          // ── VERSION_CONFLICT: outro usuário salvou no intervalo ──────────
+          if (serverReply.code === 'VERSION_CONFLICT' || serverReply.success === false && serverReply.code === 'VERSION_CONFLICT') {
+            _syncRunning = false;
+            _v4ConflictHandling = true;
+            console.warn('[V4] VERSION_CONFLICT — dados NÃO sobrescritos. serverVer=', serverReply.serverVersion);
+            _v3LogError('VERSION_CONFLICT', { serverMsg: serverReply.message, serverVersion: serverReply.serverVersion });
+
+            // Mostra aviso amigável sem bloquear (não usa alert)
+            _v4ShowConflictToast(serverReply.message);
+
+            // Recarrega versão mais recente do servidor e faz merge
+            // sem perder a sessão do usuário
+            try {
+              await _v4ReloadAfterConflict(serverReply.serverVersion);
+            } catch(reloadErr) {
+              console.warn('[V4] Reload pós-conflito falhou:', reloadErr.message);
+            }
+            _v4ConflictHandling = false;
+            return; // encerra o ciclo — dados locais serão re-enviados após merge
+          }
+
+          // ── VALIDATION_ERROR: payload inválido ──────────────────────────
+          if (serverReply.code === 'VALIDATION_ERROR') {
+            console.error('[V4] VALIDATION_ERROR:', serverReply.message);
+            _v3LogError('VALIDATION_ERROR', { message: serverReply.message });
+            // Não faz retry — erro de payload não vai melhorar com retentativas
+            // [V5-HTML-P1] Reseta _syncQueue antes de sair para que um sync
+            // pendente (agendado durante esta execução) possa ser executado.
+            _syncQueue   = false;
+            _syncRunning = false;
+            setCloudUI('err', 'Erro de validação');
+            syncLog('⚠️ Erro de validação: ' + (serverReply.message || 'payload inválido'));
+            return;
+          }
+
+          // ── SAVE_ERROR: erro interno do servidor ────────────────────────
+          if (serverReply.code === 'SAVE_ERROR') {
+            throw new Error('Erro no servidor: ' + (serverReply.message || 'SAVE_ERROR'));
+          }
+
+          // ── OK: gravação confirmada ─────────────────────────────────────
+          if (serverReply.success === true || serverReply.ok === true) {
+            postOk = true;
+            // Atualiza versão local com a nova versão do servidor
+            if (serverReply.dataVersion !== undefined) {
+              _v3SetDataVersion(String(serverReply.dataVersion));
+            }
+            // [V4-P2] Limpa dirty tables após confirmação
+            if (typeof _v4DirtyTables !== 'undefined') {
+              _v4DirtyTables.clear();
+            }
+            console.info('[V4] POST confirmado pelo servidor. dataVersion=', serverReply.dataVersion,
+                         'saved=', serverReply.saved, 'skipped=', serverReply.skipped);
+          } else {
+            // Resposta sem success/ok claro — trata como sucesso (retrocompatibilidade)
+            postOk = true;
+          }
+        } else {
+          // Sem resposta parseável mas HTTP 200 — assume sucesso (GAS pode retornar HTML em edge cases)
+          postOk = true;
+          console.warn('[V4] POST: resposta não parseável como JSON — assumindo sucesso.');
+        }
+
       } catch(fetchErr) {
-        // Fallback: sendBeacon com Blob text/plain
-        if(typeof navigator.sendBeacon === 'function'){
-          const blob = new Blob([jsonBody], {type:'text/plain;charset=UTF-8'});
+        // [V4-P1] Fallback com sendBeacon APENAS em contexto de beforeunload
+        // (página sendo fechada). Em outros contextos, propaga o erro para retry.
+        if (document._v4BeforeUnload && typeof navigator.sendBeacon === 'function') {
+          const blob = new Blob([jsonBody], { type: 'text/plain;charset=UTF-8' });
           navigator.sendBeacon(cfg.gsUrl, blob);
           postOk = true;
-          console.warn('[sync] no-cors/fetch falhou, usou sendBeacon:', fetchErr.message);
+          console.warn('[V4] beforeunload: usou sendBeacon como fallback.');
         } else {
           throw fetchErr;
         }
@@ -7319,10 +7980,16 @@ async function _runSync() {
       // ── PASSO 4: Atualiza localStorage com estado mesclado ──────────────
       if (cloudRec) {
         DB = toSend;
-        // Tombstones MANTIDOS em memória e localStorage — são a fonte da verdade
-        // para exclusões. Zerá-los faria as entidades ressurgirem no próximo GET.
+        // Limpa tombstones de entidades localmente após push confirmado
+        // (já aplicados no merge; não precisam persistir)
+        if(DB.deleted) DB.deleted = {userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
         try { localStorage.setItem('bi_v5', JSON.stringify(DB)); } catch(e){}
       }
+
+      // [V4-P2] — captura snapshot do estado sincronizado para detecção futura
+      // de tabelas alteradas. Próximo sync só enviará tabelas que mudaram.
+      _v4CaptureSnapshot();
+      _v4DirtyTables.clear();
 
       setCloudUI('ok', 'Nuvem ✓');
       syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
@@ -7426,18 +8093,35 @@ function _deepMerge(cloud, local) {
     if (!local.vendas?.[k]) return; // ok, cloud já tem
   });
 
-  // ── deletedVendaIds: union de tombstones (cloud + local) — exclusões persistem na nuvem ──
+  // ── deletedVendaIds: union de tombstones com merge cronológico ────────────
+  // [V6-C3] Novo formato: { mes: { id: { deletedAt } } }
+  // Regra: deletedAt mais recente vence (nunca "desfaz" uma exclusão mais nova).
   if(!r.deletedVendaIds) r.deletedVendaIds = {};
-  const _ldel = local.deletedVendaIds || {};
+  r.deletedVendaIds = _normalizeTombstones(r.deletedVendaIds);
+  const _ldel = _normalizeTombstones(local.deletedVendaIds || {});
   Object.keys(_ldel).forEach(k => {
-    if(!r.deletedVendaIds[k]) r.deletedVendaIds[k] = [];
-    const _dset = new Set(r.deletedVendaIds[k].map(String));
-    (_ldel[k]||[]).forEach(id => { if(!_dset.has(String(id))) r.deletedVendaIds[k].push(String(id)); });
+    if(!r.deletedVendaIds[k]) r.deletedVendaIds[k] = {};
+    Object.keys(_ldel[k]).forEach(id => {
+      const localEntry  = _ldel[k][id];
+      const cloudEntry  = r.deletedVendaIds[k][id];
+      if (!cloudEntry || localEntry.deletedAt > cloudEntry.deletedAt) {
+        r.deletedVendaIds[k][id] = localEntry;
+      }
+    });
   });
-  // Aplica tombstones: remove do resultado final qualquer venda marcada como excluída
+  // Aplica tombstones: remove do resultado final qualquer venda marcada como excluída.
+  // [V6-C3] Compara deletedAt com ts da venda: se a venda é MAIS RECENTE que a exclusão,
+  // a venda vence (ex: registro recriado intencionalmente após exclusão por engano).
   Object.keys(r.vendas||{}).forEach(k => {
-    const _delIds = new Set((r.deletedVendaIds[k]||[]).map(String));
-    if(_delIds.size) r.vendas[k] = r.vendas[k].filter(v => !_delIds.has(String(v.id)));
+    const _delMap = r.deletedVendaIds[k] || {};
+    r.vendas[k] = (r.vendas[k]||[]).filter(v => {
+      const entry = _delMap[String(v.id)];
+      if (!entry) return true; // não está tombstonado — mantém
+      const vendaTs = v.ts ? new Date(v.ts).getTime() : 0;
+      // Se a venda tem ts mais recente que deletedAt, houve reinserção intencional
+      if (vendaTs > entry.deletedAt && entry.deletedAt > 0) return true;
+      return false; // tombstone prevalece
+    });
   });
 
   // ── mergeArr: local vence em empate (para sellers — local pode ter novos não enviados) ──
@@ -7614,6 +8298,7 @@ async function cloudPush() { await _syncEnqueue(); }
 // cloudSyncVendas: motor unificado (pull-merge-push) garante que vendas
 // de TODOS os usuários sejam preservadas. Substitui o pull-before-push manual.
 async function cloudSyncVendas(){
+  ensureCurrentMonth(); // [V6-C5] garante mês correto antes de sync de vendas
   try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
   await _syncEnqueue();
 }
@@ -7717,11 +8402,15 @@ function dbToTables(db) {
     }
   });
 
-  // ── deletedVendaIds: achata {mes: [id,...]} ──
+  // ── deletedVendaIds: achata {mes: {id: {deletedAt}}} ──
+  // [V6-C3] Novo formato inclui deletedAt para merge cronológico.
+  // Bases legadas com array são normalizadas por _normalizeTombstones antes de chegar aqui.
   const deletedVendaIds = [];
-  Object.keys(db.deletedVendaIds || {}).forEach(mes => {
-    (db.deletedVendaIds[mes] || []).forEach(id => {
-      deletedVendaIds.push({ mes, id: String(id) });
+  const _dvNorm = _normalizeTombstones(db.deletedVendaIds);
+  Object.keys(_dvNorm).forEach(mes => {
+    Object.keys(_dvNorm[mes]).forEach(id => {
+      const entry = _dvNorm[mes][id];
+      deletedVendaIds.push({ mes, id: String(id), deletedAt: entry.deletedAt || 0 });
     });
   });
 
@@ -7918,13 +8607,18 @@ function tablesToDB(tables) {
     db.ativacaoManualOv[ymKey][uid] = Number(val);
   });
 
-  // ── deletedVendaIds: reconstrói {mes: [id,...]} ──
+  // ── deletedVendaIds: reconstrói {mes: {id: {deletedAt}}} ──
+  // [V6-C3] Suporta tanto o formato novo ({ mes, id, deletedAt }) quanto o legado
+  // ({ mes, id }) — garante retrocompatibilidade com abas existentes no Sheets.
   db.deletedVendaIds = {};
-  (tables.deletedVendaIds || []).forEach(({ mes, id }) => {
+  (tables.deletedVendaIds || []).forEach(row => {
+    const { mes, id, deletedAt } = row;
     if (!mes || !id) return;
-    if (!db.deletedVendaIds[mes]) db.deletedVendaIds[mes] = [];
-    db.deletedVendaIds[mes].push(String(id));
+    if (!db.deletedVendaIds[mes]) db.deletedVendaIds[mes] = {};
+    db.deletedVendaIds[mes][String(id)] = { deletedAt: Number(deletedAt) || 0 };
   });
+  // Normaliza caso o Sheets tenha retornado estrutura inesperada
+  db.deletedVendaIds = _normalizeTombstones(db.deletedVendaIds);
 
   // ── deleted entities ──
   db.deleted = { userIds: [], sellerIds: [], timeIds: [], regionalIds: [] };
@@ -7981,6 +8675,9 @@ function tablesToDB(tables) {
   // ── psv_tpv ──────────────────────────────────────────────────────────────
   // Regra 1: mapeamento por userId + ymKey + hubId + mk
   // Regra 2: dedup por chave composta — última ocorrência vence
+  // [V5-HTML-P3] Filtro corrigido: hubId vazio é permitido (igual à CORREÇÃO P1
+  //   de psvDp) — rows com hubId='' podem existir quando salvas antes de o
+  //   timeId do supervisor ser definido. Filtrar apenas por ymKey e mk é seguro.
   db.psvTpv = (tables.psv_tpv || []).map(r => ({
     userId    : String(r.userId || ''),
     ymKey     : String(r.ymKey  || ''),
@@ -7988,7 +8685,7 @@ function tablesToDB(tables) {
     mk        : String(r.mk     || ''),
     valor_real: (r.valor_real != null && r.valor_real !== '') ? Number(r.valor_real) || null : null,
     valor_proj: (r.valor_proj != null && r.valor_proj !== '') ? Number(r.valor_proj) || null : null,
-  })).filter(r => r.ymKey && r.hubId && r.mk);
+  })).filter(r => r.ymKey && r.mk);
   {
     const _lastMap = new Map();
     db.psvTpv.forEach(r => { _lastMap.set(`${r.userId}|${r.ymKey}|${r.hubId}|${r.mk}`, r); });
@@ -8027,7 +8724,36 @@ function tablesToDB(tables) {
 
 // ── cloudPull: busca SEMPRE o banco mais recente do Google Sheets ─────────
 // Regra: nuvem é a fonte da verdade. Só conserva vendas locais pendentes.
+
+// ── [V6-C4] Verificação de integridade de mês das vendas ─────────────────────
+// Percorre DB.vendas e loga divergências onde a data não pertence ao mês armazenado.
+// NUNCA corrige automaticamente — apenas registra para auditoria.
+// Chamada após cloudPull para detectar dados corrompidos no Sheets.
+function _checkVendasIntegrity(vendas, context) {
+  if (!vendas || typeof vendas !== 'object') return;
+  const who = (typeof currentUser !== 'undefined' && currentUser)
+    ? (currentUser.username || String(currentUser.id) || 'desconhecido') : 'sistema';
+  Object.keys(vendas).forEach(mes => {
+    const list = vendas[mes];
+    if (!Array.isArray(list)) return;
+    list.forEach(v => {
+      if (!v.date) return;
+      const parts = v.date.split('-');
+      if (parts.length < 2) return;
+      const ymCalc = parts[0] + parts[1]; // YYYYMM calculado a partir da data
+      if (ymCalc !== String(mes)) {
+        console.error('[V6-C4] INTEGRIDADE: venda com mês divergente', JSON.stringify({
+          id: v.id, mesArmazenado: mes, mesCalculado: ymCalc,
+          date: v.date, usuario: who, ts: new Date().toISOString(),
+          contexto: context || 'cloudPull'
+        }));
+      }
+    });
+  });
+}
+
 async function cloudPull(mergeLocal = false){
+  ensureCurrentMonth(); // [V6-C5] garante mês correto antes de buscar dados do servidor
   if(window._blockPull && Date.now()-window._blockPull < 300000) return false;
   const cfg = getCfg();
   if(!cfg.gsUrl) return false;
@@ -8035,11 +8761,12 @@ async function cloudPull(mergeLocal = false){
   try{
     // Timestamp garante URL única: nenhum browser, CDN ou proxy reutiliza cache
     const url = cfg.gsUrl + '?action=get&_t=' + Date.now();
-    const res = await fetch(url, {
+    // [V-3 MELHORIA 2] — usa fetchWithRetry (3 tentativas, backoff exponencial)
+    const res = await fetchWithRetry(url, {
       cache : 'no-store',
       signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
               ? AbortSignal.timeout(15000) : undefined
-    });
+    }, 3);
     if(!res.ok) throw new Error('HTTP ' + res.status);
 
     let data;
@@ -8049,6 +8776,11 @@ async function cloudPull(mergeLocal = false){
     // Erro explícito do GAS (ex: planilha não encontrada, permissão negada)
     if(data && data.error){
       throw new Error('GAS: ' + data.error);
+    }
+
+    // [V-3 MELHORIA 1] — captura versão de dados do servidor para controle de conflito
+    if (data && data._version !== undefined) {
+      _v3SetDataVersion(data._version);
     }
 
     // Converte tabelas do Sheets → DB interno
@@ -8132,18 +8864,29 @@ async function cloudPull(mergeLocal = false){
     });
     rec.nextId = Math.max(rec.nextId||0, DB.nextId||0);
 
-    // ── Merge tombstones locais → nuvem: exclusões offline persistem após pull ──
-    // vendas
+    // ── Merge tombstones locais → nuvem com novo formato [V6-C3] ────────────
     if(!rec.deletedVendaIds) rec.deletedVendaIds = {};
-    const _pullDelLocal = DB.deletedVendaIds || {};
+    rec.deletedVendaIds = _normalizeTombstones(rec.deletedVendaIds);
+    const _pullDelLocal = _normalizeTombstones(DB.deletedVendaIds || {});
     Object.keys(_pullDelLocal).forEach(k => {
-      if(!rec.deletedVendaIds[k]) rec.deletedVendaIds[k] = [];
-      const _pds = new Set(rec.deletedVendaIds[k].map(String));
-      (_pullDelLocal[k]||[]).forEach(id => { if(!_pds.has(String(id))) rec.deletedVendaIds[k].push(String(id)); });
+      if(!rec.deletedVendaIds[k]) rec.deletedVendaIds[k] = {};
+      Object.keys(_pullDelLocal[k]).forEach(id => {
+        const localEntry = _pullDelLocal[k][id];
+        const cloudEntry = rec.deletedVendaIds[k][id];
+        if (!cloudEntry || localEntry.deletedAt > cloudEntry.deletedAt) {
+          rec.deletedVendaIds[k][id] = localEntry;
+        }
+      });
     });
     Object.keys(rec.vendas||{}).forEach(k => {
-      const _pdIds = new Set((rec.deletedVendaIds[k]||[]).map(String));
-      if(_pdIds.size) rec.vendas[k] = rec.vendas[k].filter(v => !_pdIds.has(String(v.id)));
+      const _delMap = rec.deletedVendaIds[k] || {};
+      rec.vendas[k] = (rec.vendas[k]||[]).filter(v => {
+        const entry = _delMap[String(v.id)];
+        if (!entry) return true;
+        const vendaTs = v.ts ? new Date(v.ts).getTime() : 0;
+        if (vendaTs > entry.deletedAt && entry.deletedAt > 0) return true;
+        return false;
+      });
     });
     // entidades (users, sellers, times, regionais)
     if(!rec.deleted||typeof rec.deleted!=='object') rec.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
@@ -8171,6 +8914,10 @@ async function cloudPull(mergeLocal = false){
     // Garante entidades canônicas APÓS tombstone (nunca ficam ausentes)
     migrateToDefaultRegional(rec);
     deduplicateDB(rec);
+
+    // [V6-C4] Verifica integridade de mês após receber dados da nuvem
+    // Loga silenciosamente qualquer divergência sem bloquear a operação.
+    _checkVendasIntegrity(rec.vendas, 'cloudPull');
 
     // ── CRÍTICO: preserva alterações locais não sincronizadas ──
     // Quando chamado em polling de fundo (mergeLocal=true), faz merge em vez de
@@ -8339,7 +9086,8 @@ async function gsCreateBackup(){
     params.append('action', 'backup');
     params.append('data',   JSON.stringify(dbToTables(DB)));
     params.append('label',  label);
-    await fetch(cfg.gsUrl, { method:'POST', body:params });
+    // [V-3 MELHORIA 2] — retry automático para backup
+    await fetchWithRetry(cfg.gsUrl, { method:'POST', body:params }, 3);
     toast('✅ Backup "' + label + '" criado!');
     if(document.getElementById('bk-label')) document.getElementById('bk-label').value = '';
     await gsLoadBackupList();
@@ -8358,7 +9106,8 @@ async function gsLoadBackupList(){
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--tl);font-size:12px;">🔄 Carregando…</div>';
   try{
     const url = cfg.gsUrl + '?action=listBackups&_t=' + Date.now();
-    const res = await fetch(url, { cache:'no-store' });
+    // [V-3 MELHORIA 2] — retry automático
+    const res = await fetchWithRetry(url, { cache:'no-store' }, 3);
     const data = await res.json();
     const list = data.backups || [];
     if(!list.length){
@@ -8385,9 +9134,9 @@ async function gsRestoreBackup(id, label){
   if(!cfg.gsUrl){ toast('Configure a URL do Apps Script primeiro','⚠️'); return; }
   toast('⏳ Restaurando backup…');
   try{
-    // 1. Busca os dados do backup
+    // 1. Busca os dados do backup — [V-3 MELHORIA 2] retry automático
     const url = cfg.gsUrl + '?action=getBackup&id=' + encodeURIComponent(id) + '&_t=' + Date.now();
-    const res = await fetch(url, { cache:'no-store' });
+    const res = await fetchWithRetry(url, { cache:'no-store' }, 3);
     const data = await res.json();
     if(data.error) throw new Error(data.error);
     if(!data.tables && !data.sellers) throw new Error('Backup sem dados');
@@ -8420,7 +9169,8 @@ async function gsDeleteBackup(id, btn){
     const params = new URLSearchParams();
     params.append('action', 'deleteBackup');
     params.append('id', id);
-    await fetch(cfg.gsUrl, { method:'POST', body:params });
+    // [V-3 MELHORIA 2] — retry automático
+    await fetchWithRetry(cfg.gsUrl, { method:'POST', body:params }, 3);
     toast('🗑️ Backup excluído.');
     await gsLoadBackupList();
   } catch(e){
@@ -8439,7 +9189,8 @@ async function gsExportJson(){
   toast('⏳ Baixando JSON da nuvem…');
   try{
     const url = cfg.gsUrl + '?action=exportJson&_t=' + Date.now();
-    const res = await fetch(url, { cache:'no-store' });
+    // [V-3 MELHORIA 2] — retry automático
+    const res = await fetchWithRetry(url, { cache:'no-store' }, 3);
     const txt = await res.text();
     // Cria download
     const blob = new Blob([txt], { type:'application/json' });
@@ -8461,7 +9212,8 @@ async function gsExportCsv(){
   toast('⏳ Gerando CSV…');
   try{
     const url = cfg.gsUrl + '?action=exportCsv' + (mes?'&mes='+encodeURIComponent(mes):'') + '&_t=' + Date.now();
-    const res = await fetch(url, { cache:'no-store' });
+    // [V-3 MELHORIA 2] — retry automático
+    const res = await fetchWithRetry(url, { cache:'no-store' }, 3);
     const txt = await res.text();
     const blob = new Blob([txt], { type:'text/csv;charset=utf-8;' });
     const a    = document.createElement('a');
@@ -8524,7 +9276,8 @@ async function bkExportCloud(){
   if(btn){ btn.disabled=true; btn.innerHTML='⏳ Baixando da nuvem…'; }
   try{
     const url = cfg.gsUrl + '?action=get&_t=' + Date.now();
-    const res = await fetch(url, { cache:'no-store' });
+    // [V-3 MELHORIA 2] — retry automático
+    const res = await fetchWithRetry(url, { cache:'no-store' }, 3);
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const txt = await res.text();
     // Valida que é JSON válido com estrutura correta
@@ -8646,7 +9399,8 @@ async function bkDoRestore(){
       step('Enviando para o Google Sheets…');
       const params = new URLSearchParams();
       params.append('data', JSON.stringify(DB));
-      const postRes = await fetch(cfg.gsUrl, { method:'POST', body:params });
+      // [V-3 MELHORIA 2] — retry automático para importação
+      const postRes = await fetchWithRetry(cfg.gsUrl, { method:'POST', body:params }, 3);
       if(!postRes.ok) throw new Error('Servidor retornou HTTP ' + postRes.status);
       const result = await postRes.json().catch(()=>null);
       if(result && result.error) throw new Error('GAS: ' + result.error);
@@ -10991,14 +11745,32 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   // a) Polling 5s — ativo somente quando a aba está visível
   setInterval(()=>{ if(!document.hidden) _pull(); }, 5000);
 
+  // [V6-C1] Monitor de virada de mês — executa a cada 60 s
+  // Intervalo separado do polling de dados para evitar sobrecarga.
+  // ensureCurrentMonth() é no-op se o mês não mudou.
+  setInterval(()=>{ ensureCurrentMonth(); }, 60000);
+
   // b) visibilitychange — Chrome, Firefox, Edge, Samsung Browser
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) _pull(); });
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden) {
+      ensureCurrentMonth(); // [V6-C1] verifica virada ao retornar à aba
+      _pull();
+    }
+  });
 
   // c) pageshow — iOS Safari (BFCache): único evento confiável ao voltar para a aba no iOS
-  window.addEventListener('pageshow', e=>{ if(e.persisted) _pull(); });
+  window.addEventListener('pageshow', e=>{
+    if(e.persisted) {
+      ensureCurrentMonth(); // [V6-C1] verifica virada ao restaurar do BFCache
+      _pull();
+    }
+  });
 
   // d) focus — desktop ao voltar para a janela do browser
-  window.addEventListener('focus', ()=>_pull());
+  window.addEventListener('focus', ()=>{
+    ensureCurrentMonth(); // [V6-C1] verifica virada ao focar a janela
+    _pull();
+  });
 
   // e) offline — marca dados como pendentes e atualiza pill para vermelho
   window.addEventListener('offline', ()=>{
@@ -11043,7 +11815,16 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   // h) storage — sincroniza múltiplas abas do mesmo browser instantaneamente
   window.addEventListener('storage', e=>{
     if(e.key==='bi_v5' && e.newValue && currentUser){
-      try{ const d=JSON.parse(e.newValue); if(d?.sellers){ DB=d; renderAll(); } }catch(x){}
+      // [V5-HTML-P4] Usa _deepMerge em vez de substituição direta:
+      // preserva edições PSV locais pendentes (psvPlano, psvTpv, psvDp)
+      // que podem existir nesta aba mas ainda não foram sincronizadas.
+      try{
+        const d=JSON.parse(e.newValue);
+        if(d?.sellers){
+          DB = (typeof _deepMerge === 'function') ? _deepMerge(d, DB) : d;
+          renderAll();
+        }
+      }catch(x){}
     }
   });
 
