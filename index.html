@@ -11627,14 +11627,30 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   const showRetry  = ()=> { const e=document.getElementById('loading-retry');   if(e) e.style.display=''; };
 
   // ── PASSO 1: Sincroniza com a nuvem ANTES de mostrar o login ─────────────
+  // FIX (carregamento do dashboard travando): cloudPull() já executa 3 tentativas
+  // internas com backoff exponencial (fetchWithRetry). O loop externo repetia
+  // esse mesmo retry mais 5x, multiplicando o tempo de espera (até ~30-60s+
+  // antes de sair do estado "Carregando…"). Além disso, sem um limite máximo
+  // de tempo, uma rede lenta ou instável podia deixar a tela de carregamento
+  // presa por tempo indefinido, dando a impressão de que a página não carrega.
+  // A correção reduz a redundância (2 tentativas externas em vez de 5, já que
+  // cada uma já tenta 3x sozinha) e adiciona um teto de tempo (watchdog) que
+  // garante a saída automática do estado de carregamento — sem alterar o
+  // comportamento existente (mesma ordem: nuvem → cache local → login/dash).
   setMsg('Conectando ao Google Sheets…');
+  const BOOT_MAX_TRIES = 2;   // cloudPull() já tenta 3x internamente
+  const BOOT_HARD_TIMEOUT_MS = 20000; // teto absoluto para nunca travar a tela
   let ok = false;
-  for(let t=1; t<=5; t++){
-    setMsg(t===1 ? 'Carregando banco de dados…' : `Tentando novamente… (${t}/5)`);
-    ok = await cloudPull();
-    if(ok) break;
-    if(t < 5) await new Promise(r=>setTimeout(r, t * 1500));
-  }
+  const _bootSync = (async () => {
+    for(let t=1; t<=BOOT_MAX_TRIES; t++){
+      setMsg(t===1 ? 'Carregando banco de dados…' : `Tentando novamente… (${t}/${BOOT_MAX_TRIES})`);
+      ok = await cloudPull();
+      if(ok) break;
+      if(t < BOOT_MAX_TRIES) await new Promise(r=>setTimeout(r, 1000));
+    }
+  })();
+  const _bootTimeout = new Promise(r=>setTimeout(r, BOOT_HARD_TIMEOUT_MS));
+  await Promise.race([_bootSync, _bootTimeout]);
 
   if(!ok){
     // Fallback local apenas como último recurso
