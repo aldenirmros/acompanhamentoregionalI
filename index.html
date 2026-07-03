@@ -5806,6 +5806,7 @@ function addVenda(){
   // Fire-and-forget: nunca bloqueia a UI nem depende de sucesso para o fluxo
   // normal continuar (o localStorage acima já garante a persistência local).
   _v9EnqueueOp('add', 'venda', {..._novaVenda, ymKey});
+  _v9PendingVendaIds.add(String(_novaVenda.id)); // selo "⏳ Pendente" até confirmação do servidor
   _v9Audit('CRIAR_VENDA', _novaVenda.id, null, _novaVenda);
   flashSaved();
   renderLancar();
@@ -5904,13 +5905,22 @@ function renderLancar(){
     const s = isHist ? v._seller : DB.sellers.find(x=>x.id===v.sellerId);
     const d=new Date(v.date+'T12:00:00');
     const dow=DSEM[d.getDay()];
+    // [V9] Selo de confirmação: mostra se esta venda já foi salva no Google
+    // Sheets (confirmada pelo servidor) ou ainda está pendente de envio.
+    // Baseado em _v9PendingVendaIds, atualizado em tempo real pelo motor de
+    // sync — não adiciona nenhuma coluna nova à tabela (evita quebrar
+    // colspans existentes), só um selo dentro da célula de ações já existente.
+    const _pendente = !isHist && _v9PendingVendaIds.has(String(v.id));
+    const _selo = isHist ? '' : (_pendente
+      ? `<span title="Ainda não confirmado pelo servidor — será reenviado automaticamente" style="font-size:11px;margin-right:6px;color:#d97706" class="v9-selo-pendente">⏳</span>`
+      : `<span title="Confirmado salvo no Google Sheets" style="font-size:11px;margin-right:6px;color:var(--green)" class="v9-selo-salvo">☁️✓</span>`);
     return `<tr style="${isHist?'opacity:.72;background:rgba(124,58,237,.025)':''}">
       <td class="mono" style="color:var(--tm)">${v.date.split('-').reverse().join('/')}</td>
       <td style="color:var(--tl);font-size:11px">${dow}</td>
       <td><div class="sc"><div class="sd" style="background:${s?.color||'#ccc'}"></div>${s?.name||'—'}${isHist?'<span style="font-size:9px;background:rgba(124,58,237,.1);color:#7c3aed;border:1px solid rgba(124,58,237,.2);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:700">HIST</span>':''}</div></td>
       <td class="mono fw7 fg-g">${v.qty}</td>
       <td><span style="font-size:11px;background:${v.type==='conquista'?'rgba(5,150,105,.1)':'rgba(37,99,235,.1)'};color:${v.type==='conquista'?'var(--green)':'var(--blue)'};padding:2px 7px;border-radius:4px;font-weight:600">${v.type}</span></td>
-      <td>${!isHist?`<button class="del-btn" onclick="delVenda('${v.id}','${ymKey}')" title="Excluir">✕</button>`:''}</td>
+      <td>${_selo}${!isHist?`<button class="del-btn" onclick="delVenda('${v.id}','${ymKey}')" title="Excluir">✕</button>`:''}</td>
     </tr>`;
   }
 
@@ -6076,6 +6086,7 @@ function delVenda(id,ymKey){
   DB.vendas[ymKey]=(DB.vendas[ymKey]||[]).filter(v=>String(v.id)!==sid);
   // [V9-ETAPA1/2/6] Enfileira a exclusão (sobrevive a fechar app) e audita.
   _v9EnqueueOp('delete', 'venda', {id:sid, ymKey});
+  _v9PendingVendaIds.delete(sid); // registro excluído — não faz mais sentido mostrar selo
   _v9Audit('EXCLUIR_VENDA', sid, venda||null, null);
   saveDB(); renderLancar(); renderDash();
   toast('Registro excluído','🗑️');
@@ -7855,6 +7866,15 @@ async function _v9RemoveOpsBefore(cutoff){
     const store = tx.objectStore(_V9_IDB_STORE);
     toRemove.forEach(o => store.delete(o.id));
     _v9Log('FILA', `${toRemove.length} operação(ões) confirmada(s) pelo servidor — removida(s) da fila`);
+    // [UI] Atualiza o selo "☁️ Salvo / ⏳ Pendente" na página Lançar: qualquer
+    // venda que acabou de ser confirmada sai do conjunto de pendentes.
+    let _mudouVenda = false;
+    toRemove.forEach(o => {
+      if(o.entity==='venda' && o.type==='add' && o.payload?.id!=null){
+        if(_v9PendingVendaIds.delete(String(o.payload.id))) _mudouVenda = true;
+      }
+    });
+    if(_mudouVenda) _v9RenderLancarIfActive();
   }catch(e){}
 }
 
@@ -7868,12 +7888,36 @@ async function _v9IncrementRetry(id){
   }catch(e){}
 }
 
+// ── Selo visual "☁️ Salvo / ⏳ Pendente" na página Lançar ───────────────────
+// Conjunto (em memória) de ids de vendas AINDA NÃO confirmadas pelo servidor.
+// Alimentado por addVenda() (adiciona na hora) e esvaziado por
+// _v9RemoveOpsBefore() (só quando o servidor confirma de verdade).
+const _v9PendingVendaIds = new Set();
+
+// Popula o conjunto a partir da fila persistente — usado no boot, para que o
+// selo já apareça correto mesmo que a página tenha sido recarregada com
+// operações ainda pendentes de uma sessão anterior.
+async function _v9RefreshPendingVendaIds(){
+  try{
+    const ops = await _v9GetAllOps();
+    ops.forEach(o => { if(o.entity==='venda' && o.type==='add' && o.payload?.id!=null) _v9PendingVendaIds.add(String(o.payload.id)); });
+    _v9RenderLancarIfActive();
+  }catch(e){}
+}
+
+// Re-renderiza a página Lançar apenas se ela estiver ativa no momento —
+// mesmo padrão já usado por renderPSVIfActive().
+function _v9RenderLancarIfActive(){
+  if(document.getElementById('page-lancar')?.classList.contains('active') && typeof renderLancar==='function') renderLancar();
+}
+
 // Ao reabrir o app (boot) ou reconectar: se sobrou operação na fila de uma
 // sessão anterior que fechou antes da confirmação do servidor, reagenda o
 // sync automaticamente — sem depender do usuário perceber ou agir.
 async function _v9ReplayPendingQueue(){
   try{
     const ops = await _v9GetAllOps();
+    await _v9RefreshPendingVendaIds();
     if(!ops.length) return;
     _v9Log('RETRY', `${ops.length} operação(ões) pendente(s) de sessão anterior detectada(s) — reenviando`);
     ops.forEach(o => _v9IncrementRetry(o.id));
