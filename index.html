@@ -5767,9 +5767,24 @@ function buildLine(ymKey,y,m,sid){
 function populateQESellers(){
   const sel=document.getElementById('qe-seller');
   const sellers=getScopedSellers();
+  // [V9] Preserva a seleção atual do usuário ao reconstruir a lista — mesmo
+  // motivo do fix em setDefaultDate: renderLancar() agora também pode rodar
+  // automaticamente quando uma venda é confirmada pelo servidor, e isso não
+  // deve descartar o vendedor que o usuário já tinha escolhido para o
+  // próximo lançamento.
+  const _prevVal = sel.value;
   sel.innerHTML=sellers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  if(_prevVal && sellers.some(s=>String(s.id)===String(_prevVal))) sel.value=_prevVal;
 }
 function setDefaultDate(){
+  // [V9] Não sobrescreve se o usuário está digitando/focado neste campo —
+  // mesmo padrão de proteção já usado em outros campos do sistema (ex:
+  // cfg-desconto-dias em renderDash). Necessário porque renderLancar() agora
+  // também pode ser chamado automaticamente quando uma venda é confirmada
+  // pelo servidor (selo ⏳→☁️✓), o que não deve interromper uma data que o
+  // usuário esteja digitando para o próximo lançamento.
+  const el = document.getElementById('qe-date');
+  if(el && document.activeElement === el) return;
   document.getElementById('qe-date').value=fmtD(today());
 }
 
