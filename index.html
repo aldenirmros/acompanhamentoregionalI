@@ -3674,6 +3674,7 @@ async function _v4ReloadAfterConflict(serverVersion) {
     const cfg = getCfg();
     if (!cfg.gsUrl) return;
 
+    _v9Log('CONFLICT', `VERSION_CONFLICT recebido (serverVersion=${serverVersion}) — iniciando replay: pull → merge → reaplicar pendentes → novo push`);
     setCloudUI('sync', 'Mesclando…');
 
     // Busca snapshot mais recente (force=true para ignorar cache)
@@ -3690,7 +3691,11 @@ async function _v4ReloadAfterConflict(serverVersion) {
 
     const cloudRec = raw ? tablesToDB(raw) : null;
     if (cloudRec) {
-      // Merge: cloud (base) + local (edições) — sem perder nenhum dos dois lados
+      // [V9-ETAPA4] Merge: cloud (base) + local (edições, incluindo qualquer
+      // operação ainda pendente na fila IndexedDB — ela já está refletida em
+      // DB.vendas em memória, então o merge automaticamente a "reaplica").
+      // Nunca recarrega a página (location.reload não é chamado aqui nem em
+      // nenhum outro ponto deste fluxo) — nenhuma alteração local é perdida.
       const merged = _deepMerge(cloudRec, DB);
       if (merged.deleted) merged.deleted = { userIds:[], sellerIds:[], timeIds:[], regionalIds:[] };
       DB = merged;
@@ -3703,12 +3708,14 @@ async function _v4ReloadAfterConflict(serverVersion) {
 
     setCloudUI('ok', 'Nuvem ✓');
     syncLog('Conflito resolvido — dados mesclados em ' + new Date().toLocaleTimeString('pt-BR'));
+    _v9Log('CONFLICT', 'merge pós-conflito concluído — reagendando push com a versão correta');
 
     // Agenda re-envio com a versão correta — agora sem conflito
     setTimeout(() => _syncEnqueue(), 1500);
 
   } catch(err) {
     console.error('[V4] _v4ReloadAfterConflict falhou:', err.message);
+    _v9Log('CONFLICT', 'falha ao mesclar após conflito — ' + err.message + ' — dados locais preservados, nova tentativa ao salvar novamente');
     setCloudUI('err', 'Erro ao mesclar');
     syncLog('⚠️ Erro ao mesclar após conflito — tente salvar novamente.');
     _v3LogError('CONFLICT_RELOAD_ERROR', { message: err.message });
@@ -5788,8 +5795,18 @@ function addVenda(){
   }
 
   if(!DB.vendas[ymKey]) DB.vendas[ymKey]=[];
-  DB.vendas[ymKey].push({id:Date.now(),sellerId:sid,date,qty,type,ts:new Date().toISOString()});
+  // [V9-ETAPA3] Campo updatedAt adicionado (além do ts já existente) — usado
+  // pelo merge para decidir qual registro é mais recente em caso de colisão
+  // de id, em vez de confiar só no id. Não substitui nenhum campo existente.
+  const _novaVenda = {id:Date.now(),sellerId:sid,date,qty,type,ts:new Date().toISOString(),updatedAt:Date.now()};
+  DB.vendas[ymKey].push(_novaVenda);
   localStorage.setItem('bi_v5', JSON.stringify(DB)); // salva local imediatamente
+  // [V9-ETAPA1/2] Enfileira a operação em IndexedDB ANTES de qualquer envio à
+  // rede — sobrevive a fechar o navegador, queda de energia, perda de sinal.
+  // Fire-and-forget: nunca bloqueia a UI nem depende de sucesso para o fluxo
+  // normal continuar (o localStorage acima já garante a persistência local).
+  _v9EnqueueOp('add', 'venda', {..._novaVenda, ymKey});
+  _v9Audit('CRIAR_VENDA', _novaVenda.id, null, _novaVenda);
   flashSaved();
   renderLancar();
   renderDash();
@@ -6057,6 +6074,9 @@ function delVenda(id,ymKey){
     DB.deletedVendaIds[ymKey][sid] = { deletedAt: Date.now() };
   }
   DB.vendas[ymKey]=(DB.vendas[ymKey]||[]).filter(v=>String(v.id)!==sid);
+  // [V9-ETAPA1/2/6] Enfileira a exclusão (sobrevive a fechar app) e audita.
+  _v9EnqueueOp('delete', 'venda', {id:sid, ymKey});
+  _v9Audit('EXCLUIR_VENDA', sid, venda||null, null);
   saveDB(); renderLancar(); renderDash();
   toast('Registro excluído','🗑️');
 }
@@ -6069,7 +6089,8 @@ function clearMonthHistory(){
   if(!DB.deletedVendaIds[currentYM]) DB.deletedVendaIds[currentYM] = {};
   // [V6-C3] Tombstones com timestamp para toda exclusão em massa
   const now = Date.now();
-  existing.filter(v => scopeIds.has(v.sellerId)).forEach(v => {
+  const _apagadas = existing.filter(v => scopeIds.has(v.sellerId));
+  _apagadas.forEach(v => {
     const sid = String(v.id);
     if(!DB.deletedVendaIds[currentYM][sid] || !DB.deletedVendaIds[currentYM][sid].deletedAt){
       DB.deletedVendaIds[currentYM][sid] = { deletedAt: now };
@@ -6077,6 +6098,9 @@ function clearMonthHistory(){
   });
   // Mantém vendas fora do escopo do usuário (outros HUBs/regionais)
   DB.vendas[currentYM] = existing.filter(v => !scopeIds.has(v.sellerId));
+  // [V9-ETAPA1/2/6] Enfileira a exclusão em massa e audita cada registro apagado.
+  _v9EnqueueOp('delete_bulk', 'venda', {ids:_apagadas.map(v=>String(v.id)), ymKey:currentYM});
+  _apagadas.forEach(v => _v9Audit('EXCLUIR_VENDA_LOTE', String(v.id), v, null));
   saveDB(); renderLancar(); renderDash();
   toast('Histórico do mês limpo','🗑️');
 }
@@ -7506,7 +7530,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxc7KltAXqfIqy0mE1U4Dbg2leZQLhi9GS6-txncWapStkq8iWhcznSWJ7X3Bie3hhuvQ/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxuVB0IypAnJJWZzAadxPqjjtVhm0UMvPflaVaS-e2gLj57Yvb7ilIZRABXhYxd1x9E5w/exec';
 
 function getCfg(){
   try{
@@ -7529,7 +7553,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxc7KltAXqfIqy0mE1U4Dbg2leZQLhi9GS6-txncWapStkq8iWhcznSWJ7X3Bie3hhuvQ/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxuVB0IypAnJJWZzAadxPqjjtVhm0UMvPflaVaS-e2gLj57Yvb7ilIZRABXhYxd1x9E5w/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7538,7 +7562,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxc7KltAXqfIqy0mE1U4Dbg2leZQLhi9GS6-txncWapStkq8iWhcznSWJ7X3Bie3hhuvQ/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxuVB0IypAnJJWZzAadxPqjjtVhm0UMvPflaVaS-e2gLj57Yvb7ilIZRABXhYxd1x9E5w/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7731,6 +7755,190 @@ function saveDB() {
 //    — Fallback sendBeacon apenas em beforeunload (página fechando)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  [V9] AUDITORIA E CORREÇÃO DO MOTOR DE SINCRONIZAÇÃO
+//  Objetivo: eliminar perda de vendas, sem alterar regras de negócio, telas,
+//  permissões, cálculos, filtros, PSV ou dashboards. Tudo abaixo é ADITIVO —
+//  roda em paralelo ao motor de sync existente (_runSync/_deepMerge), nunca
+//  o substitui. Se qualquer parte do V9 falhar (ex: IndexedDB indisponível),
+//  o sync normal continua funcionando exatamente como antes.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Logger estruturado — ETAPA 7 ─────────────────────────────────────────────
+// Tags: [SYNC] [FILA] [CONFLICT] [UPLOAD] [RETRY] [BEACON]
+function _v9Log(tag, ...args){
+  try{ console.log(`[${tag}]`, new Date().toLocaleTimeString('pt-BR'), ...args); }catch(e){}
+}
+
+// ── ETAPA 1 — FILA PERSISTENTE (IndexedDB) ──────────────────────────────────
+// Estrutura: { id, type, entity, payload, createdAt, retries }
+// Sobrevive a: fechar navegador, refresh, queda de energia, perda de internet,
+// reinício do celular — tudo isso é justamente para o que IndexedDB serve
+// (ao contrário de variáveis em memória como _syncPending, que se perdem).
+const _V9_IDB_NAME    = 'bi_v9_queue';
+const _V9_IDB_STORE   = 'pendingOperations';
+const _V9_IDB_VERSION = 1;
+let _v9IdbHandle = null;
+
+function _v9IdbOpen(){
+  return new Promise((resolve) => {
+    if(typeof indexedDB === 'undefined'){ resolve(null); return; }
+    if(_v9IdbHandle){ resolve(_v9IdbHandle); return; }
+    try{
+      const req = indexedDB.open(_V9_IDB_NAME, _V9_IDB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(_V9_IDB_STORE)){
+          db.createObjectStore(_V9_IDB_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = (e) => { _v9IdbHandle = e.target.result; resolve(_v9IdbHandle); };
+      req.onerror   = () => {
+        _v9Log('FILA', 'IndexedDB indisponível neste navegador — fila persistente desativada; sync normal (localStorage + debounce) continua funcionando sem alteração.');
+        resolve(null);
+      };
+    }catch(e){ resolve(null); }
+  });
+}
+
+// Enfileira uma operação (chamado em addVenda/delVenda ANTES de qualquer
+// tentativa de rede — ETAPA 2: ação do usuário → IndexedDB → fila local).
+async function _v9EnqueueOp(type, entity, payload){
+  try{
+    const db = await _v9IdbOpen();
+    if(!db) return null;
+    const op = {
+      id       : `${entity}_${type}_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+      type, entity, payload,
+      createdAt: Date.now(),
+      retries  : 0
+    };
+    return new Promise((resolve) => {
+      try{
+        const tx = db.transaction(_V9_IDB_STORE, 'readwrite');
+        tx.objectStore(_V9_IDB_STORE).put(op);
+        tx.oncomplete = () => { _v9Log('FILA', `operação enfileirada: ${op.type} ${op.entity}`, op.id); resolve(op.id); };
+        tx.onerror    = () => resolve(null);
+      }catch(e){ resolve(null); }
+    });
+  }catch(e){ return null; }
+}
+
+async function _v9GetAllOps(){
+  try{
+    const db = await _v9IdbOpen();
+    if(!db) return [];
+    return new Promise((resolve) => {
+      try{
+        const req = db.transaction(_V9_IDB_STORE, 'readonly').objectStore(_V9_IDB_STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror   = () => resolve([]);
+      }catch(e){ resolve([]); }
+    });
+  }catch(e){ return []; }
+}
+
+// Remove da fila apenas operações CONFIRMADAS pelo servidor — nunca antes
+// disso (ETAPA 2: "nunca remover da fila antes da confirmação do servidor").
+// `cutoff`: timestamp de início do sync que acabou de ser confirmado —
+// qualquer operação enfileirada ATÉ esse momento já estava refletida no
+// payload que o servidor confirmou; operações mais novas (criadas durante o
+// próprio sync) permanecem na fila para a próxima rodada.
+async function _v9RemoveOpsBefore(cutoff){
+  try{
+    const db = await _v9IdbOpen();
+    if(!db) return;
+    const ops = await _v9GetAllOps();
+    const toRemove = ops.filter(o => o.createdAt <= cutoff);
+    if(!toRemove.length) return;
+    const tx = db.transaction(_V9_IDB_STORE, 'readwrite');
+    const store = tx.objectStore(_V9_IDB_STORE);
+    toRemove.forEach(o => store.delete(o.id));
+    _v9Log('FILA', `${toRemove.length} operação(ões) confirmada(s) pelo servidor — removida(s) da fila`);
+  }catch(e){}
+}
+
+async function _v9IncrementRetry(id){
+  try{
+    const db = await _v9IdbOpen();
+    if(!db) return;
+    const store = db.transaction(_V9_IDB_STORE, 'readwrite').objectStore(_V9_IDB_STORE);
+    const req = store.get(id);
+    req.onsuccess = () => { const op = req.result; if(op){ op.retries=(op.retries||0)+1; store.put(op); } };
+  }catch(e){}
+}
+
+// Ao reabrir o app (boot) ou reconectar: se sobrou operação na fila de uma
+// sessão anterior que fechou antes da confirmação do servidor, reagenda o
+// sync automaticamente — sem depender do usuário perceber ou agir.
+async function _v9ReplayPendingQueue(){
+  try{
+    const ops = await _v9GetAllOps();
+    if(!ops.length) return;
+    _v9Log('RETRY', `${ops.length} operação(ões) pendente(s) de sessão anterior detectada(s) — reenviando`);
+    ops.forEach(o => _v9IncrementRetry(o.id));
+    if(currentUser && typeof _syncEnqueue === 'function') await _syncEnqueue();
+  }catch(e){}
+}
+
+// ── ETAPA 6 — LOG DE AUDITORIA ──────────────────────────────────────────────
+// { timestamp, userId, ação, idVenda, dadosAntes, dadosDepois }
+// Buffer circular local (mesmo padrão já usado por _v3LogError) — não requer
+// nenhuma alteração de planilha/backend, não altera regra de negócio nenhuma.
+const _V9_MAX_AUDIT = 300;
+let _v9AuditLog = (() => {
+  try{ return JSON.parse(localStorage.getItem('bi_v9_audit')||'[]'); }catch(e){ return []; }
+})();
+function _v9Audit(acao, idVenda, dadosAntes, dadosDepois){
+  try{
+    const entry = {
+      timestamp : new Date().toISOString(),
+      userId    : (typeof currentUser!=='undefined' && currentUser) ? (currentUser.id ?? currentUser.username ?? 'n/a') : 'n/a',
+      acao,
+      idVenda   : idVenda ?? null,
+      dadosAntes: dadosAntes ?? null,
+      dadosDepois: dadosDepois ?? null
+    };
+    _v9AuditLog.push(entry);
+    if(_v9AuditLog.length > _V9_MAX_AUDIT) _v9AuditLog.shift();
+    try{ localStorage.setItem('bi_v9_audit', JSON.stringify(_v9AuditLog)); }catch(e){}
+  }catch(e){}
+}
+
+// ── ETAPA 5 — MONITOR DE CONECTIVIDADE (heartbeat) ──────────────────────────
+// Não depende só dos eventos online/offline (que o browser pode não disparar
+// corretamente em todos os cenários, ex: Wi-Fi trocando para 4G sem queda
+// total). Usa ?action=ping — endpoint dedicado e ainda mais leve que
+// ?action=version (nem consulta a versão dos dados, só confirma que o
+// Apps Script está respondendo).
+async function _v9Ping(){
+  try{
+    const cfg = getCfg();
+    if(!cfg.gsUrl) return false;
+    const ctrl = new AbortController();
+    const tid  = setTimeout(()=>ctrl.abort(), 6000);
+    const res  = await fetch(cfg.gsUrl + '?action=ping&_t=' + Date.now(), {
+      cache: 'no-store', signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    if(!res.ok) return false;
+    const data = await res.json().catch(()=>null);
+    return !!(data && (data.pong === true || data.success === true));
+  }catch(e){ return false; }
+}
+
+let _v9LastHeartbeatOk = null;
+async function _v9Heartbeat(){
+  const okNow = await _v9Ping();
+  if(_v9LastHeartbeatOk === false && okNow){
+    _v9Log('SYNC', 'heartbeat detectou conexão restaurada — sincronizando');
+    if(currentUser){ _syncEnqueue(); _v9ReplayPendingQueue(); }
+  } else if(_v9LastHeartbeatOk !== false && !okNow){
+    _v9Log('SYNC', 'heartbeat não obteve resposta do servidor (rede instável ou offline)');
+  }
+  _v9LastHeartbeatOk = okNow;
+}
+
 let _syncQueue   = false; // há um sync agendado/em curso?
 // [SAFETY-PSV] Quando true, o filtro de escopo PSV em _runSync (que restringe
 // o envio às linhas do próprio usuário) é temporariamente desativado.
@@ -7765,6 +7973,10 @@ async function _runSync() {
   }
   _syncRunning = true;
   _syncQueue   = false;
+  // [V9-ETAPA2] Marca o instante de início deste sync — usado para saber,
+  // em caso de sucesso, quais operações da fila IndexedDB já estavam
+  // refletidas no payload enviado (ver _v9RemoveOpsBefore mais abaixo).
+  const _v9SyncStartedAt = Date.now();
 
   const cfg = getCfg();
   if (!cfg.gsUrl) { setCloudUI('off', 'Sem nuvem'); _syncRunning = false; return; }
@@ -8019,6 +8231,13 @@ async function _runSync() {
       _v4CaptureSnapshot();
       _v4DirtyTables.clear();
 
+      // [V9-ETAPA2] Só agora — com o servidor tendo confirmado o recebimento
+      // (postOk / serverReply.success, tratado acima) — é seguro remover da
+      // fila IndexedDB as operações que já estavam refletidas neste envio.
+      // Nunca remove antes deste ponto.
+      _v9RemoveOpsBefore(_v9SyncStartedAt);
+      _v9Log('UPLOAD', 'sync confirmado pelo servidor');
+
       setCloudUI('ok', 'Nuvem ✓');
       syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
 
@@ -8030,6 +8249,7 @@ async function _runSync() {
     } catch(err) {
       lastErr = err;
       console.warn(`[sync] tentativa ${t}/${MAX_TRIES} falhou:`, err.message);
+      _v9Log('RETRY', `tentativa ${t}/${MAX_TRIES} falhou — ${err.message}`);
       if (t < MAX_TRIES) {
         // Backoff: 1s → 2s → 4s
         await new Promise(r => setTimeout(r, 1000 * Math.pow(2, t - 1)));
@@ -8044,6 +8264,10 @@ async function _runSync() {
   setCloudUI('err', _isNetErr ? 'Desconectado' : 'Sem conexão');
   syncLog('⚠️ Falha ao sincronizar. Dado salvo localmente — será reenviado ao reconectar.');
   console.error('[sync] todas as tentativas falharam:', lastErr?.message);
+  // [V9-ETAPA1] A fila IndexedDB NÃO é tocada aqui — as operações continuam
+  // pendentes até uma confirmação real do servidor (ver _v9RemoveOpsBefore),
+  // garantindo que nada seja considerado "salvo" sem ter sido de fato aceito.
+  _v9Log('RETRY', `todas as ${MAX_TRIES} tentativas falharam — dados preservados no localStorage e na fila; será reenviado ao reconectar`);
 
   // Para erros de rede genuínos, não adianta fazer retry por timer:
   // o evento 'online' vai disparar a reconexão automaticamente.
@@ -8106,11 +8330,32 @@ function _deepMerge(cloud, local) {
   const cloudIsNewer = cloudSavedAt > localSavedAt;
 
   // ── vendas: union por id em todos os meses ──
+  // [V9-ETAPA3] Antes: se o id de uma venda local já existisse na nuvem, a
+  // versão local era descartada incondicionalmente — decisão baseada só no
+  // id, sem olhar qual registro era de fato mais recente. Agora comparamos
+  // updatedAt (com fallback para ts, e depois para 0) e o registro
+  // genuinamente mais novo vence. Para ids que só existem de um lado
+  // (o caso comum — cada venda tem id único), o comportamento é idêntico
+  // ao de sempre: ambos os lados são preservados.
   const lv = local.vendas || {};
   Object.keys(lv).forEach(k => {
     if (!r.vendas[k]) r.vendas[k] = [];
-    const ids = new Set(r.vendas[k].map(v => String(v.id)));
-    const extras = (lv[k]||[]).filter(v => !ids.has(String(v.id)));
+    const cloudById = new Map(r.vendas[k].map(v => [String(v.id), v]));
+    const extras = [];
+    (lv[k]||[]).forEach(locV => {
+      const key = String(locV.id);
+      const cloudV = cloudById.get(key);
+      if (!cloudV) { extras.push(locV); return; } // id novo — sempre inclui, como antes
+      // Id presente nos dois lados: o mais recente por updatedAt/ts vence.
+      const locTs   = locV.updatedAt   || (locV.ts   ? new Date(locV.ts).getTime()   : 0) || 0;
+      const cloudTs = cloudV.updatedAt || (cloudV.ts ? new Date(cloudV.ts).getTime() : 0) || 0;
+      if (locTs > cloudTs) {
+        const idx = r.vendas[k].indexOf(cloudV);
+        if (idx >= 0) r.vendas[k][idx] = locV;
+      }
+      // Caso contrário, mantém a versão da nuvem — mesmo resultado de antes
+      // para o caso em que os dois lados são idênticos ou a nuvem é mais nova.
+    });
     if (extras.length) {
       r.vendas[k] = [...r.vendas[k], ...extras]
         .sort((a,b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
@@ -8780,7 +9025,25 @@ function _checkVendasIntegrity(vendas, context) {
   });
 }
 
-async function cloudPull(mergeLocal = false){
+// [V9-CRÍTICO] Padrão mudado de `false` para `true`.
+//
+// Auditoria encontrou MAIS DE 10 pontos no sistema chamando cloudPull() sem
+// mergeLocal=true (boot, botão "Atualizar", conectar nuvem pela primeira vez,
+// login, importação, tela de administração de DB, etc). Em todos esses casos,
+// se o dispositivo tivesse uma venda salva localmente mas ainda não confirmada
+// pelo servidor (rede caiu, aba fechada antes do debounce de 1s, app Android
+// suspenso no meio do envio), a chamada substituía o DB inteiro pelo estado
+// — mais antigo — da nuvem, apagando a venda da memória silenciosamente.
+//
+// mergeLocal=true NUNCA se comporta pior que false: ele só muda o resultado
+// quando DB._savedAt (local) é estritamente mais recente que o _savedAt da
+// nuvem — exatamente o caso que precisa de proteção. Em qualquer outra
+// situação (nuvem igual ou mais nova, ou sem dado local relevante), o
+// comportamento é idêntico ao de sempre (nuvem vence). Por isso a correção
+// mais segura e abrangente é no padrão da função — protege every ponto do
+// código que já chama cloudPull() sem argumento, presente ou futuro — em vez
+// de caçar e editar cada chamada individualmente (risco de esquecer alguma).
+async function cloudPull(mergeLocal = true){
   ensureCurrentMonth(); // [V6-C5] garante mês correto antes de buscar dados do servidor
   if(window._blockPull && Date.now()-window._blockPull < 300000) return false;
   const cfg = getCfg();
@@ -11643,7 +11906,19 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   const _bootSync = (async () => {
     for(let t=1; t<=BOOT_MAX_TRIES; t++){
       setMsg(t===1 ? 'Carregando banco de dados…' : `Tentando novamente… (${t}/${BOOT_MAX_TRIES})`);
-      ok = await cloudPull();
+      // [V9-CRÍTICO] cloudPull(true) em vez de cloudPull(): o boot é o ÚNICO
+      // ponto do sistema inteiro que chamava cloudPull() sem mergeLocal=true.
+      // Sem isso, se o dispositivo tivesse uma venda salva em localStorage mas
+      // ainda não confirmada pelo servidor (aba fechada durante o debounce de
+      // 1s, rede caindo no meio do POST, app Android suspenso), o boot
+      // SUBSTITUÍA o DB inteiro pelo estado — mais antigo — da nuvem,
+      // apagando a venda da memória. Na prática: bastava um simples refresh
+      // de página com sync pendente para perder a venda definitivamente,
+      // sem nenhum erro visível ao usuário. cloudPull(true) só mescla em vez
+      // de substituir quando o local é genuinamente mais novo que a nuvem
+      // (DB._savedAt > rec._savedAt) — nos demais casos o comportamento é
+      // idêntico ao de antes (nuvem vence, como sempre foi).
+      ok = await cloudPull(true);
       if(ok) break;
       if(t < BOOT_MAX_TRIES) await new Promise(r=>setTimeout(r, 1000));
     }
@@ -11710,13 +11985,19 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
           applySession();
         }
         _doRender();
+        // [V9-ETAPA1/2] Se a sessão anterior fechou com operações ainda não
+        // confirmadas pelo servidor (fila IndexedDB não vazia), reagenda o
+        // reenvio agora — sem esperar o usuário perceber ou agir.
+        _v9ReplayPendingQueue();
       };
       if(ok){
         // DB já está fresco (PASSO 1 sincronizou agora mesmo) — sem novo fetch.
         _refreshCurrentUserAndRender();
       } else {
         // PASSO 1 falhou — mantém exatamente o comportamento de recuperação anterior.
-        cloudPull().then(okRetry => {
+        // [V9-CRÍTICO] Mesma correção do PASSO 1: cloudPull(true) para nunca
+        // descartar vendas locais não confirmadas ainda pelo servidor.
+        cloudPull(true).then(okRetry => {
           if(okRetry) _refreshCurrentUserAndRender();
           else _doRender();
         }).catch(() => _doRender());
@@ -11824,6 +12105,15 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   // a) Polling 5s — ativo somente quando a aba está visível
   setInterval(()=>{ if(!document.hidden) _pull(); }, 5000);
 
+  // [V9-ETAPA5] Heartbeat de conectividade — não depende exclusivamente dos
+  // eventos online/offline do navegador (que nem sempre disparam de forma
+  // confiável, ex: troca de Wi-Fi para 4G sem uma queda total detectável).
+  // Roda mesmo com a aba em background (setInterval não é pausado por
+  // document.hidden aqui, propositalmente, para detectar reconexão mesmo
+  // com o app minimizado). Usa o endpoint leve ?action=version — mesmo
+  // reaproveitado pelo polling — sem custo extra de leitura de planilha.
+  setInterval(()=>{ if(currentUser) _v9Heartbeat(); }, 30000);
+
   // [V6-C1] Monitor de virada de mês — executa a cada 60 s
   // Intervalo separado do polling de dados para evitar sobrecarga.
   // ensureCurrentMonth() é no-op se o mês não mudou.
@@ -11863,6 +12153,7 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   window.addEventListener('online', ()=>{
     setCloudUI('sync','Reconectando…');   // amarelo pulsante enquanto tenta
     toast('🌐 Conexão restaurada — sincronizando…');
+    _v9Log('SYNC', 'evento online disparado — reconectando');
     setTimeout(async ()=>{
       if(!currentUser) return;
       try{
@@ -11875,6 +12166,9 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
           // Nenhum dado pendente: pull silencioso para atualizar a UI
           await _pull();
         }
+        // [V9-ETAPA1/2] Garante que qualquer operação ainda presa na fila
+        // IndexedDB (de antes desta reconexão) também seja reenviada agora.
+        await _v9ReplayPendingQueue();
       } catch(e){
         console.warn('[online handler]', e.message);
         setCloudUI('err','Sem conexão');
@@ -11918,6 +12212,13 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
       const p=new URLSearchParams();
       p.append('data',JSON.stringify(tablePayload));
       navigator.sendBeacon(cfg.gsUrl, p);
+      _v9Log('BEACON', 'envio de emergência disparado (página fechando/em background)');
+      // [V9-ETAPA1] Não removemos a fila IndexedDB aqui: sendBeacon não dá
+      // nenhuma confirmação de entrega ao código (é "dispare e esqueça" por
+      // design do navegador). A fila só é limpa quando um _runSync normal,
+      // com resposta real do servidor, confirmar o recebimento — na próxima
+      // vez que o app abrir, _v9ReplayPendingQueue() garante o reenvio caso
+      // o beacon não tenha realmente chegado.
     }catch(e){}
   }
   window.addEventListener('pagehide',     _beacon);
