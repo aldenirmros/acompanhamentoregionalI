@@ -1647,6 +1647,11 @@ canvas { display:block; max-width:100%; }
       <span id="sync-status-txt">Sync…</span>
     </div>
 
+    <!-- [PERGUNTA DO USUÁRIO] Selo visível de pendências — some sozinho quando
+         tudo estiver confirmado pelo servidor. Dá visibilidade ANTES de
+         fechar a página (além do diálogo de confirmação do beforeunload). -->
+    <div id="v9-pending-badge" style="display:none;font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;white-space:nowrap;flex-shrink:0" title="Vendas aguardando confirmação da nuvem — aguarde antes de fechar a página"></div>
+
     <!-- SALVO -->
     <div id="saved-badge">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1672,6 +1677,18 @@ canvas { display:block; max-width:100%; }
     <div class="cloud-pill" id="cloud-pill" onclick="openCloudModal()" title="Configurar nuvem">
       <div class="cloud-dot off" id="cloud-dot"></div>
       <span id="cloud-txt">Nuvem</span>
+    </div>
+
+    <!-- [PRESENÇA] QUEM ESTÁ ONLINE -->
+    <div id="online-wrap" style="position:relative;flex-shrink:0">
+      <div class="cloud-pill" id="online-pill" onclick="toggleOnlineDropdown()" title="Ver quem está online">
+        <div style="width:7px;height:7px;border-radius:50%;background:#22c55e"></div>
+        <span id="online-txt">— online</span>
+      </div>
+      <div id="online-dropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;background:var(--white,#fff);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.14);z-index:500;min-width:190px;max-width:260px;max-height:280px;overflow-y:auto;">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--tl)">Online agora</div>
+        <div id="online-list"></div>
+      </div>
     </div>
 
     <!-- USER BADGE -->
@@ -5822,6 +5839,7 @@ function addVenda(){
   // normal continuar (o localStorage acima já garante a persistência local).
   _v9EnqueueOp('add', 'venda', {..._novaVenda, ymKey});
   _v9PendingVendaIds.add(String(_novaVenda.id)); // selo "⏳ Pendente" até confirmação do servidor
+  _v9RefreshPendingBadge();
   _v9Audit('CRIAR_VENDA', _novaVenda.id, null, _novaVenda);
   flashSaved();
   renderLancar();
@@ -6102,6 +6120,7 @@ function delVenda(id,ymKey){
   // [V9-ETAPA1/2/6] Enfileira a exclusão (sobrevive a fechar app) e audita.
   _v9EnqueueOp('delete', 'venda', {id:sid, ymKey});
   _v9PendingVendaIds.delete(sid); // registro excluído — não faz mais sentido mostrar selo
+  _v9RefreshPendingBadge();
   _v9Audit('EXCLUIR_VENDA', sid, venda||null, null);
   saveDB(); renderLancar(); renderDash();
   toast('Registro excluído','🗑️');
@@ -7556,7 +7575,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxuVB0IypAnJJWZzAadxPqjjtVhm0UMvPflaVaS-e2gLj57Yvb7ilIZRABXhYxd1x9E5w/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbybgarVhQpCt55vU2eb7SYJ5x5AHeeZVvAT_5tiDtA7J9YJtPnkKTHwXisEP1a-dtVC4g/exec';
 
 function getCfg(){
   try{
@@ -7579,7 +7598,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxuVB0IypAnJJWZzAadxPqjjtVhm0UMvPflaVaS-e2gLj57Yvb7ilIZRABXhYxd1x9E5w/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbybgarVhQpCt55vU2eb7SYJ5x5AHeeZVvAT_5tiDtA7J9YJtPnkKTHwXisEP1a-dtVC4g/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7588,7 +7607,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxuVB0IypAnJJWZzAadxPqjjtVhm0UMvPflaVaS-e2gLj57Yvb7ilIZRABXhYxd1x9E5w/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbybgarVhQpCt55vU2eb7SYJ5x5AHeeZVvAT_5tiDtA7J9YJtPnkKTHwXisEP1a-dtVC4g/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -7889,7 +7908,7 @@ async function _v9RemoveOpsBefore(cutoff){
         if(_v9PendingVendaIds.delete(String(o.payload.id))) _mudouVenda = true;
       }
     });
-    if(_mudouVenda) _v9RenderLancarIfActive();
+    if(_mudouVenda){ _v9RenderLancarIfActive(); _v9RefreshPendingBadge(); }
   }catch(e){}
 }
 
@@ -7917,6 +7936,7 @@ async function _v9RefreshPendingVendaIds(){
     const ops = await _v9GetAllOps();
     ops.forEach(o => { if(o.entity==='venda' && o.type==='add' && o.payload?.id!=null) _v9PendingVendaIds.add(String(o.payload.id)); });
     _v9RenderLancarIfActive();
+    _v9RefreshPendingBadge();
   }catch(e){}
 }
 
@@ -7924,6 +7944,21 @@ async function _v9RefreshPendingVendaIds(){
 // mesmo padrão já usado por renderPSVIfActive().
 function _v9RenderLancarIfActive(){
   if(document.getElementById('page-lancar')?.classList.contains('active') && typeof renderLancar==='function') renderLancar();
+}
+
+// [PERGUNTA DO USUÁRIO] Atualiza o selo "⏳ N pendente(s)" no topbar — some
+// sozinho quando não há mais nada pendente. Chamado em todo ponto onde
+// _v9PendingVendaIds muda (addVenda, delVenda, confirmação de sync, boot).
+function _v9RefreshPendingBadge(){
+  const el = document.getElementById('v9-pending-badge');
+  if(!el) return;
+  const n = _v9PendingVendaIds.size;
+  if(n > 0){
+    el.style.display = 'inline-flex';
+    el.textContent = `⏳ ${n} pendente${n>1?'s':''}`;
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 // Ao reabrir o app (boot) ou reconectar: se sobrou operação na fila de uma
@@ -7996,7 +8031,79 @@ async function _v9Heartbeat(){
     _v9Log('SYNC', 'heartbeat não obteve resposta do servidor (rede instável ou offline)');
   }
   _v9LastHeartbeatOk = okNow;
+  // [PRESENÇA] Aproveita o mesmo tick de 30s para anunciar presença e
+  // atualizar a lista de quem está online — evita criar um 2º timer.
+  if(currentUser && okNow){
+    _v9SendPresence();
+    _v9RefreshOnlineWidget();
+  }
 }
+
+// ── [PRESENÇA] Quem está online ─────────────────────────────────────────────
+// Puramente aditivo: usa os endpoints ?action=heartbeat / ?action=whoIsOnline
+// (V-8.gs), que não tocam em nenhuma planilha — só CacheService com TTL.
+let _v9OnlineUsers = []; // [{userId, nome, lastSeen}]
+
+async function _v9SendPresence(){
+  try{
+    const cfg = getCfg();
+    if(!cfg.gsUrl || !currentUser) return;
+    const uid  = encodeURIComponent(currentUser.id);
+    const nome = encodeURIComponent(currentUser.nome || currentUser.username || '');
+    await fetch(`${cfg.gsUrl}?action=heartbeat&userId=${uid}&nome=${nome}&_t=${Date.now()}`, { cache:'no-store' });
+  }catch(e){}
+}
+
+async function _v9FetchWhoIsOnline(){
+  try{
+    const cfg = getCfg();
+    if(!cfg.gsUrl) return [];
+    const res = await fetch(`${cfg.gsUrl}?action=whoIsOnline&_t=${Date.now()}`, { cache:'no-store' });
+    if(!res.ok) return [];
+    const data = await res.json().catch(()=>null);
+    return (data && Array.isArray(data.online)) ? data.online : [];
+  }catch(e){ return []; }
+}
+
+async function _v9RefreshOnlineWidget(){
+  _v9OnlineUsers = await _v9FetchWhoIsOnline();
+  _v9RenderOnlineWidget();
+}
+
+function _v9RenderOnlineWidget(){
+  const txt  = document.getElementById('online-txt');
+  const list = document.getElementById('online-list');
+  if(!txt || !list) return;
+  // Não conta a si mesmo como "outra pessoa" no rótulo, mas mostra na lista também
+  const n = _v9OnlineUsers.length;
+  txt.textContent = n===1 ? '1 online' : `${n} online`;
+  if(!n){
+    list.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:var(--tl)">Ninguém mais online agora</div>';
+    return;
+  }
+  const myId = currentUser ? String(currentUser.id) : null;
+  list.innerHTML = [..._v9OnlineUsers]
+    .sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    .map(u=>`<div style="padding:7px 14px;font-size:12.5px;display:flex;align-items:center;gap:8px;color:var(--td)">
+      <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0"></span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.nome || ('Usuário '+u.userId)}</span>
+      ${String(u.userId)===myId?'<span style="font-size:9.5px;color:var(--tl)">(você)</span>':''}
+    </div>`).join('');
+}
+
+function toggleOnlineDropdown(){
+  const dd = document.getElementById('online-dropdown');
+  if(!dd) return;
+  const opening = dd.style.display !== 'block';
+  dd.style.display = opening ? 'block' : 'none';
+  if(opening) _v9RefreshOnlineWidget();
+}
+document.addEventListener('click', e=>{
+  if(!e.target.closest('#online-wrap')) {
+    const dd = document.getElementById('online-dropdown');
+    if(dd) dd.style.display='none';
+  }
+});
 
 let _syncQueue   = false; // há um sync agendado/em curso?
 // [SAFETY-PSV] Quando true, o filtro de escopo PSV em _runSync (que restringe
@@ -9923,6 +10030,10 @@ function doLogin(){
   setSession(user);
   document.getElementById('login-ov').classList.add('hidden');
   applySession();
+  // [PRESENÇA] Anuncia que este usuário está online assim que faz login —
+  // não espera o primeiro tick de 30s do heartbeat.
+  _v9SendPresence();
+  _v9RefreshOnlineWidget();
   const navEl = document.querySelector('.ni.on') || document.querySelectorAll('.ni')[0];
   const loginBtn = document.querySelector('.login-btn');
   if(loginBtn){ loginBtn.textContent='Carregando…'; loginBtn.disabled=true; }
@@ -12048,6 +12159,10 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
         // confirmadas pelo servidor (fila IndexedDB não vazia), reagenda o
         // reenvio agora — sem esperar o usuário perceber ou agir.
         _v9ReplayPendingQueue();
+        // [PRESENÇA] Anuncia que este usuário está online assim que a sessão
+        // é restaurada — não espera o primeiro tick de 30s do heartbeat.
+        _v9SendPresence();
+        _v9RefreshOnlineWidget();
       };
       if(ok){
         // DB já está fresco (PASSO 1 sincronizou agora mesmo) — sem novo fetch.
@@ -12282,6 +12397,24 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
   }
   window.addEventListener('pagehide',     _beacon);
   window.addEventListener('beforeunload', _beacon);
+
+  // [PERGUNTA DO USUÁRIO] "Como garantir que todos os dados subiram antes de
+  // fechar a página?" — navegadores não permitem que JavaScript bloqueie de
+  // verdade o fechamento da aba (por segurança), mas permitem mostrar um
+  // diálogo nativo de confirmação ("Sair mesmo assim?") quando há alterações
+  // não salvas — é o mecanismo padrão usado por editores de texto, formulários
+  // longos, etc. Aqui, "não salvo" significa: ainda não CONFIRMADO pelo
+  // servidor (fila V9 de vendas pendentes, ou _syncPending para as demais
+  // tabelas) — não inclui o que já foi confirmado.
+  window.addEventListener('beforeunload', (e) => {
+    const pendente = _v9PendingVendaIds.size > 0 || _syncPending;
+    if(!pendente) return; // tudo confirmado — fecha sem perguntar nada
+    e.preventDefault();
+    // Navegadores modernos ignoram texto customizado e mostram uma mensagem
+    // padrão própria deles — mas isso ainda garante que o diálogo apareça.
+    e.returnValue = 'Ainda há dados aguardando confirmação da nuvem. Se sair agora, eles serão reenviados automaticamente na próxima vez que você abrir o sistema — mas é mais seguro aguardar alguns segundos.';
+    return e.returnValue;
+  });
 
   // h) storage — sincroniza múltiplas abas do mesmo browser instantaneamente
   window.addEventListener('storage', e=>{
