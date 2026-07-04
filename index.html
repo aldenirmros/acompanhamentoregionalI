@@ -1637,9 +1637,72 @@ canvas { display:block; max-width:100%; }
 
   <!-- TOPBAR -->
   <div class="topbar">
-    <div class="topbar-brand">
-      <h1>Acomp. de Vendas</h1>
+    <!-- USER BADGE — primeira posição, conforme solicitado -->
+    <div class="user-badge" id="user-badge" style="display:none">
+      <div class="user-avatar" id="ub-avatar" style="background:#2563eb">A</div>
+      <div class="ub-info"><div class="user-badge-name" id="ub-name">—</div><div class="user-badge-role" id="ub-role">—</div></div>
+      <button class="chpw-btn" onclick="openChangePwModal()" title="Trocar senha">🔑</button>
+      <button class="logout-btn" onclick="doLogout()" title="Sair">⏏</button>
     </div>
+
+    <!-- Sequência: Usuários, Criar Usuário, HC -->
+    <button class="btn btn-g" id="btn-ver-usuarios" onclick="openVerUsuariosModal()" style="display:none" title="Usuários">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+      <span class="tb-lbl">Usuários</span>
+    </button>
+    <button class="btn btn-aldenir" id="btn-criar-usuario" onclick="openAldenirUserModal()" style="display:none;background:linear-gradient(135deg,#7c3aed,#2563eb)" title="Criar usuário">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+      <span class="tb-lbl">Criar Usuário</span>
+    </button>
+    <button class="btn btn-g" onclick="goPage('sellers',document.querySelectorAll('.ni')[2])" title="HC">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span class="tb-lbl">HC</span>
+    </button>
+
+    <!-- AÇÕES (mês/calendário/Top10/atalho Lançar) — posição mantida, só sem os 3 botões movidos acima -->
+    <div class="topbar-actions-row">
+      <select class="sel" id="mes-sel" onchange="onMesChange()"></select>
+      <div style="display:flex;align-items:center;gap:1px">
+        <button class="cal-nav" onclick="navMes(-1)" title="Mês anterior" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--tl);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">‹</button>
+        <button class="cal-nav" onclick="navMes(+1)" title="Próximo mês"  style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--tl);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">›</button>
+      </div>
+      <div class="cal-wrap" id="cal-wrap">
+        <button class="cal-btn" onclick="toggleCalendar()" id="cal-btn" title="Calendário">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </button>
+        <div class="cal-dropdown" id="cal-dropdown">
+          <div class="cal-header">
+            <button class="cal-nav" onclick="calNav(-1)">‹</button>
+            <span class="cal-month-label" id="cal-month-lbl">—</span>
+            <button class="cal-nav" onclick="calNav(+1)">›</button>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-footer">
+            <div class="cal-legend"><div class="cal-legend-dot" style="background:var(--green)"></div> Com vendas</div>
+            <div class="cal-legend"><div class="cal-legend-dot" style="background:var(--blue)"></div> Hoje</div>
+            <div class="cal-total" id="cal-total-label">—</div>
+          </div>
+        </div>
+      </div>
+      <!-- ── Botão Top 10 Comemoração ── -->
+      <button class="btn btn-top10" onclick="abrirTop10Comemoracao()" title="Top 10 — Ranking do Mês" style="background:linear-gradient(135deg,#b45309,#d97706);color:#fff;border:none;display:inline-flex;align-items:center;gap:6px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+          <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+          <path d="M4 22h16"/>
+          <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+          <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+          <path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/>
+        </svg>
+        <span class="tb-lbl">Top 10</span>
+      </button>
+      <button class="btn" onclick="goPage('lancar',document.querySelectorAll('.ni')[1])">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Lançar
+      </button>
+    </div>
+
+    <!-- A PARTIR DAQUI: sincronização, salvar e as demais funções (final da barra) -->
 
     <!-- STATUS SYNC -->
     <div id="sync-status-bar" class="sync" title="Status de sincronização">
@@ -1689,69 +1752,6 @@ canvas { display:block; max-width:100%; }
         <div style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--tl)">Online agora</div>
         <div id="online-list"></div>
       </div>
-    </div>
-
-    <!-- USER BADGE -->
-    <div class="user-badge" id="user-badge" style="display:none">
-      <div class="user-avatar" id="ub-avatar" style="background:#2563eb">A</div>
-      <div class="ub-info"><div class="user-badge-name" id="ub-name">—</div><div class="user-badge-role" id="ub-role">—</div></div>
-      <button class="chpw-btn" onclick="openChangePwModal()" title="Trocar senha">🔑</button>
-      <button class="logout-btn" onclick="doLogout()" title="Sair">⏏</button>
-    </div>
-
-    <!-- AÇÕES -->
-    <div class="topbar-actions-row">
-      <select class="sel" id="mes-sel" onchange="onMesChange()"></select>
-      <div style="display:flex;align-items:center;gap:1px">
-        <button class="cal-nav" onclick="navMes(-1)" title="Mês anterior" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--tl);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">‹</button>
-        <button class="cal-nav" onclick="navMes(+1)" title="Próximo mês"  style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--tl);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center">›</button>
-      </div>
-      <div class="cal-wrap" id="cal-wrap">
-        <button class="cal-btn" onclick="toggleCalendar()" id="cal-btn" title="Calendário">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </button>
-        <div class="cal-dropdown" id="cal-dropdown">
-          <div class="cal-header">
-            <button class="cal-nav" onclick="calNav(-1)">‹</button>
-            <span class="cal-month-label" id="cal-month-lbl">—</span>
-            <button class="cal-nav" onclick="calNav(+1)">›</button>
-          </div>
-          <div class="cal-grid" id="cal-grid"></div>
-          <div class="cal-footer">
-            <div class="cal-legend"><div class="cal-legend-dot" style="background:var(--green)"></div> Com vendas</div>
-            <div class="cal-legend"><div class="cal-legend-dot" style="background:var(--blue)"></div> Hoje</div>
-            <div class="cal-total" id="cal-total-label">—</div>
-          </div>
-        </div>
-      </div>
-      <button class="btn btn-aldenir" id="btn-criar-usuario" onclick="openAldenirUserModal()" style="display:none;background:linear-gradient(135deg,#7c3aed,#2563eb)" title="Criar usuário">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-        <span class="tb-lbl">Criar Usuário</span>
-      </button>
-      <button class="btn btn-g" id="btn-ver-usuarios" onclick="openVerUsuariosModal()" style="display:none" title="Usuários">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
-        <span class="tb-lbl">Usuários</span>
-      </button>
-      <button class="btn btn-g" onclick="goPage('sellers',document.querySelectorAll('.ni')[2])" title="HC">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span class="tb-lbl">HC</span>
-      </button>
-      <!-- ── Botão Top 10 Comemoração ── -->
-      <button class="btn btn-top10" onclick="abrirTop10Comemoracao()" title="Top 10 — Ranking do Mês" style="background:linear-gradient(135deg,#b45309,#d97706);color:#fff;border:none;display:inline-flex;align-items:center;gap:6px">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
-          <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
-          <path d="M4 22h16"/>
-          <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
-          <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
-          <path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/>
-        </svg>
-        <span class="tb-lbl">Top 10</span>
-      </button>
-      <button class="btn" onclick="goPage('lancar',document.querySelectorAll('.ni')[1])">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Lançar
-      </button>
     </div>
   </div>
 
@@ -2144,6 +2144,10 @@ canvas { display:block; max-width:100%; }
         <div class="card-title"><div class="ctd" style="background:var(--blue)"></div>Histórico de Vendas — <span id="hist-period" style="color:var(--tl);font-weight:500">—</span></div>
         <div style="display:flex;gap:8px;align-items:center">
           <span style="font-size:11px;color:var(--tl)" id="hist-count">0 registros</span>
+          <button class="btn btn-g" id="hist-refresh-btn" style="font-size:11px;padding:5px 10px;display:inline-flex;align-items:center;gap:5px" onclick="_v9CheckHistNow()" title="Verificar agora se as vendas já subiram para o Sheets">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" id="hist-refresh-icon"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Verificar
+          </button>
           <button class="btn btn-g" style="font-size:11px;padding:5px 10px" onclick="clearMonthHistory()">Limpar mês</button>
         </div>
       </div>
@@ -7961,6 +7965,40 @@ function _v9RefreshPendingBadge(){
   }
 }
 
+// [PERGUNTA DO USUÁRIO] Botão "Verificar" no cabeçalho do Histórico de Vendas
+// — força agora a mesma verificação que aconteceria sozinha em segundo plano,
+// sem precisar dar F5 na página. Reaproveita o motor de sync já existente
+// (_syncEnqueue → _runSync), que faz pull + merge + push e só confirma de
+// verdade quando o servidor responde — não é um "fingir que verificou".
+async function _v9CheckHistNow(){
+  const btn  = document.getElementById('hist-refresh-btn');
+  const icon = document.getElementById('hist-refresh-icon');
+  if(btn){ btn.disabled = true; }
+  if(icon){ icon.style.animation = 'spin .8s linear infinite'; }
+  _v9Log('SYNC', 'verificação manual disparada pelo botão "Verificar" do histórico');
+  try{
+    const antes = _v9PendingVendaIds.size;
+    if(antes === 0){
+      // Nada pendente localmente — ainda assim faz um pull rápido, pois pode
+      // haver vendas de OUTROS usuários que ainda não chegaram nesta tela.
+      await _pull();
+      toast('☁️✓ Tudo confirmado na nuvem');
+    } else {
+      await _syncEnqueue(); // aguarda o ciclo completo: pull → merge → push → confirmação real
+      const depois = _v9PendingVendaIds.size;
+      if(depois === 0) toast('☁️✓ Todas as vendas confirmadas na nuvem!');
+      else toast(`⏳ ${depois} venda(s) ainda não confirmada(s) — nova tentativa em breve`, '⚠️');
+    }
+  }catch(e){
+    toast('❌ Falha ao verificar: ' + e.message, '⚠️');
+  }finally{
+    if(btn){ btn.disabled = false; }
+    if(icon){ icon.style.animation = ''; }
+    _v9RenderLancarIfActive();
+    _v9RefreshPendingBadge();
+  }
+}
+
 // Ao reabrir o app (boot) ou reconectar: se sobrou operação na fila de uma
 // sessão anterior que fechou antes da confirmação do servidor, reagenda o
 // sync automaticamente — sem depender do usuário perceber ou agir.
@@ -8401,7 +8439,7 @@ async function _runSync() {
       // (postOk / serverReply.success, tratado acima) — é seguro remover da
       // fila IndexedDB as operações que já estavam refletidas neste envio.
       // Nunca remove antes deste ponto.
-      _v9RemoveOpsBefore(_v9SyncStartedAt);
+      await _v9RemoveOpsBefore(_v9SyncStartedAt);
       _v9Log('UPLOAD', 'sync confirmado pelo servidor');
 
       setCloudUI('ok', 'Nuvem ✓');
