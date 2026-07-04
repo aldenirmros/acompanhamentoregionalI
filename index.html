@@ -1298,6 +1298,29 @@ select.sel:focus{border-color:var(--blue);}
 .btn-reset-cache{background:transparent;border:1.5px solid rgba(220,38,38,.35);color:var(--red);border-radius:var(--rs);padding:0;cursor:pointer;display:none;align-items:center;justify-content:center;transition:all .15s var(--ease);flex-shrink:0;width:30px;height:30px;}
 .btn-reset-cache:hover{background:rgba(220,38,38,.1);border-color:var(--red);}
 .btn-reset-cache.loading{opacity:.5;pointer-events:none;}
+
+/* [DESIGN] Zona de sincronização — agrupa status/salvar/nuvem/online num
+   painel visualmente distinto no fim da topbar. Gradiente sutil azul→verde
+   (nuvem → confirmado), reaproveitando as cores que o sistema já usa —
+   nenhuma cor nova foi inventada, só uma composição diferente delas. */
+.topbar-sync-zone{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-left:auto;
+  padding:5px 10px 5px 12px;
+  border-radius:16px;
+  border:1px solid var(--border);
+  background:linear-gradient(120deg, rgba(37,99,235,.06), rgba(5,150,105,.06));
+  flex-shrink:0;
+  transition:box-shadow .2s var(--ease);
+}
+.topbar-sync-zone:hover{
+  box-shadow:0 2px 10px rgba(15,23,42,.06);
+}
+@media(max-width:900px){
+  .topbar-sync-zone{padding:4px 6px 4px 8px;gap:5px;border-radius:12px;}
+}
 #sync-status-bar{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:3px 7px;border-radius:20px;border:1px solid var(--border);background:var(--bg);flex-shrink:0;white-space:nowrap;transition:all .3s;}
 #sync-status-bar.ok{color:var(--green);border-color:rgba(5,150,105,.3);background:rgba(5,150,105,.07);}
 #sync-status-bar.err{color:var(--red);border-color:rgba(220,38,38,.3);background:rgba(220,38,38,.07);}
@@ -1703,6 +1726,7 @@ canvas { display:block; max-width:100%; }
     </div>
 
     <!-- A PARTIR DAQUI: sincronização, salvar e as demais funções (final da barra) -->
+    <div class="topbar-sync-zone">
 
     <!-- STATUS SYNC -->
     <div id="sync-status-bar" class="sync" title="Status de sincronização">
@@ -1753,6 +1777,7 @@ canvas { display:block; max-width:100%; }
         <div id="online-list"></div>
       </div>
     </div>
+    </div><!-- /topbar-sync-zone -->
   </div>
 
   <!-- ══ PAGE: DASHBOARD ══ -->
@@ -3876,6 +3901,33 @@ const _CANONICAL_HUBS = [
   {id:1777691488521, nome:'CE09',  regionalId:1001,           color:'#dc2626'},
 ];
 const _PROTECTED_TIME_IDS = new Set(_CANONICAL_HUBS.map(h=>String(h.id)));
+
+// [BUGFIX] _findCe06 era chamada em applySession() e onMesChange() mas nunca
+// tinha sido definida em lugar nenhum do arquivo — um ReferenceError genuíno
+// que travava a execução no meio dessas duas funções para qualquer usuário
+// superAdmin (ex: "aldenir"). Como applySession() roda ANTES da renderização
+// do dashboard no boot, esse erro impedia o dashboard de renderizar
+// automaticamente na abertura — só "consertava" ao trocar de página, porque
+// os cliques na barra lateral chamam goPage() diretamente, sem passar por
+// applySession()/_findCe06.
+//
+// Implementação: localiza o hub "CE06 - ALPHA" — primeiro pelo id canônico
+// conhecido (2001, o mesmo usado em _CANONICAL_HUBS/migrateToDefaultRegional),
+// com fallback por nome usando exatamente o mesmo regex já usado alhures no
+// código para reconhecer variantes legadas (CE06, CE 06, CE-06, CE06-ALPHA).
+// `scopeRegionalId` é opcional (ambos os pontos de chamada hoje passam null)
+// e, se informado, prioriza um hub dentro dessa regional específica.
+function _findCe06(db, scopeRegionalId){
+  if(!db || !Array.isArray(db.times)) return null;
+  const porNome = t => /^ce[\s\-]?06/i.test(t?.nome||'');
+  if(scopeRegionalId!=null){
+    const emEscopo = db.times.find(t => (Number(t.id)===2001 || porNome(t)) && String(t.regionalId)===String(scopeRegionalId));
+    if(emEscopo) return emEscopo;
+  }
+  return db.times.find(t => Number(t.id)===2001 || String(t.id)==='2001')
+      || db.times.find(porNome)
+      || null;
+}
 const _PROTECTED_REG_IDS  = new Set(_CANONICAL_REGIONAIS.map(r=>String(r.id)));
 const _PROTECTED_USR_IDS  = new Set(['1002']);
 
@@ -4809,6 +4861,17 @@ function compressPhoto(file, maxPx=120, quality=0.7){
   });
 }
 
+// [BUGFIX] selectedSeller era usada (lida e atribuída) em várias funções mas
+// nunca tinha sido declarada com let/const/var em lugar nenhum do arquivo —
+// mesma classe de bug do _findCe06 acima. Como renderDash() LÊ essa variável
+// (const sid=selectedSeller;) antes de qualquer função que a INICIALIZASSE
+// (applyHubFilter, onDashFilterRegional, onMesChange, etc.) ser chamada, a
+// primeiríssima renderização do dashboard após o boot lançava
+// ReferenceError: selectedSeller is not defined — para QUALQUER usuário,
+// não só superAdmin. Isso interrompia renderDash() no meio, deixando o
+// dashboard em branco até o usuário trocar de mês (onMesChange faz
+// selectedSeller=null) ou fazer alguma ação que a inicializasse.
+let selectedSeller = null;
 let _newSellerPhoto=null;
 let _newUserPhoto=null;
 
