@@ -774,6 +774,18 @@ select.sel:focus{border-color:var(--blue);}
 .ov-badge-bar     {display:none!important;}
 .ov-badge-bar-fill{display:none!important;}
 
+/* ══ Movimentação de ranking — "Resultado por Time" (vs. mês anterior) ══ */
+.ov-rank-move{
+  display:inline-flex;align-items:center;justify-content:center;gap:2px;
+  font-family:'JetBrains Mono',var(--mono);font-size:11px;font-weight:800;
+  padding:2px 6px;border-radius:99px;white-space:nowrap;
+}
+.ov-rank-move.ov-rank-up   {color:var(--badge-ok-fg);   background:var(--badge-ok-bg);}
+.ov-rank-move.ov-rank-down {color:var(--badge-err-fg);  background:var(--badge-err-bg);}
+.ov-rank-move.ov-rank-flat {color:var(--tl);            background:rgba(100,116,139,.10);}
+.ov-rank-move.ov-rank-new  {color:var(--tl);            background:rgba(100,116,139,.10);}
+
+
 /* ── m-cell (M0/M1/M2 columns) ── */
 .ov-tbl .m-cell{text-align:center;}
 .ov-tbl .m-cell > div{display:inline-flex;align-items:center;justify-content:center;gap:2px;}
@@ -1753,6 +1765,14 @@ canvas { display:block; max-width:100%; }
     <!-- SALVAR -->
     <button class="btn-save-now" id="btn-global-save" onclick="manualSave()" title="Salvar agora">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+    </button>
+
+    <!-- SUBIR PARA NUVEM — força envio imediato de TODOS os dados locais ao Sheets,
+         passando pelo mesmo motor de sync (_syncEnqueue/_runSync) e portanto
+         respeitando merge, tombstones e o filtro de segurança da PSV. -->
+    <button class="btn" id="btn-subir-nuvem" onclick="subirParaNuvem()" title="Envia agora todos os dados locais para o Sheets" style="background:#0f172a;font-size:11.5px;padding:6px 13px;gap:6px;flex-shrink:0">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" id="subir-nuvem-icon"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><polyline points="12 12 12 20"/><polyline points="9 15 12 12 15 15"/></svg>
+      <span class="tb-lbl">Subir para Nuvem</span>
     </button>
 
     <!-- RESET CACHE — visível só para gerente/admin -->
@@ -2803,7 +2823,7 @@ canvas { display:block; max-width:100%; }
                │ Altere background: e color: dentro de cada style="" abaixo.       │
                └───────────────────────────────────────────────────────────────────┘ -->
           <thead><tr>
-            <th style="width:2%"></th>
+            <th style="width:3%;text-align:center" title="Movimentação no ranking vs. mês anterior">↕</th>
             <th style="width:5%">HUB</th>
             <th style="width:4%;text-align:center">HC</th>
             <th style="width:5%;text-align:center">Real.</th>
@@ -7824,6 +7844,51 @@ async function manualSave(){
     if(btn) btn.disabled = false;
   }
 }
+
+// ── "Subir para Nuvem" — envio manual e imediato de TODOS os dados locais ──
+// Diferença para manualSave(): é uma ação explícita e exclusiva do usuário
+// para forçar o upload completo agora (por exemplo, antes de fechar o
+// notebook, ou depois de preencher muita coisa offline), com feedback visual
+// dedicado. Por baixo do capô usa exatamente o mesmo caminho seguro de
+// sempre (_v4MarkAllDirty + _syncEnqueue → _runSync), então TODAS as regras
+// já implementadas continuam valendo:
+//   • _deepMerge com a nuvem antes de enviar — nunca sobrescreve cegamente
+//     o que outro usuário/dispositivo salvou entre o último pull e agora;
+//   • tombstones (exclusões de usuário/vendedor/time/regional) são
+//     enviados normalmente;
+//   • filtro [SAFETY-PSV] mantém só as linhas de Plano de Ação / TPV /
+//     Detrator-Promotor que o PRÓPRIO usuário logado tem permissão de
+//     escrever — nunca reenvia cópias de leitura de dados de outro usuário;
+//   • _clientVersion / VERSION_CONFLICT do backend continuam protegendo
+//     contra sobrescrever uma gravação concorrente mais recente.
+async function subirParaNuvem(){
+  ensureCurrentMonth(); // garante mês correto antes de enviar ao servidor
+  if(!navigator.onLine){
+    toast('⚠️ Sem conexão — conecte-se à internet para subir os dados.','⚠️');
+    return;
+  }
+  const btn = document.getElementById('btn-subir-nuvem');
+  const ico = document.getElementById('subir-nuvem-icon');
+  if(btn) btn.disabled = true;
+  if(ico) ico.style.animation = 'spin .8s linear infinite';
+  toast('☁️ Enviando todos os dados locais para o Sheets…');
+  try{
+    DB._savedAt = Date.now();
+    try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
+    flashSaved();
+    clearTimeout(saveDB._t);
+    // Força o envio de TODAS as tabelas, não só as detectadas como "sujas"
+    _v4MarkAllDirty();
+    await _syncEnqueue();
+    toast('✅ Todos os dados locais foram enviados para o Sheets!');
+  } catch(e){
+    toast('❌ Erro ao subir para a nuvem: ' + e.message,'⚠️');
+  } finally {
+    if(btn) btn.disabled = false;
+    if(ico) ico.style.animation = '';
+  }
+}
+
 function syncLog(msg){
   const el=document.getElementById('sync-log');
   if(el) el.textContent = new Date().toLocaleTimeString('pt-BR')+' — '+msg;
@@ -10492,6 +10557,53 @@ function renderOverview(){
     });
   }
 
+  // ── Movimentação de ranking (vs. mês anterior) — coluna ↕ de "Resultado por Time" ──
+  // Ranking calculado pelo % da meta atingida, entre os times atualmente visíveis
+  // (respeita o mesmo filtro de regional já aplicado acima). Comparado com o
+  // ranking do mês anterior para saber se cada HUB subiu, caiu ou manteve a posição.
+  const _ovPrevYmKey = (()=>{
+    const yy = parseInt(ymKey.slice(0,4),10), mm = parseInt(ymKey.slice(4,6),10);
+    const pm = mm===1 ? 12 : mm-1;
+    const py = mm===1 ? yy-1 : yy;
+    return String(py) + String(pm).padStart(2,'0');
+  })();
+  function _ovTeamPctFor(tm, ym){
+    const sellers = DB.sellers.filter(s=>s.timeId===tm.id && !s.inativo);
+    const real = sellers.reduce((a,s)=>a+sellerTotal(ym,s.id),0);
+    const hubM = getHubMeta(ym, tm.id);
+    const meta = hubM || sellers.reduce((a,s)=>a+getSellerMeta(ym,s.id),0);
+    return meta>0 ? real/meta : null; // null = sem meta/dados no mês → não participa do ranking
+  }
+  function _ovRankMap(ym){
+    const arr = timesVisiveis
+      .map(tm=>({id:tm.id, pct:_ovTeamPctFor(tm, ym)}))
+      .filter(x=>x.pct!=null)
+      .sort((a,b)=>b.pct-a.pct);
+    const map = new Map();
+    arr.forEach((x,i)=>map.set(x.id, i+1));
+    return map;
+  }
+  const _ovCurRank  = _ovRankMap(ymKey);
+  const _ovPrevRank = _ovRankMap(_ovPrevYmKey);
+  function _ovRankMoveHtml(tmId){
+    const cur  = _ovCurRank.get(tmId);
+    const prev = _ovPrevRank.get(tmId);
+    if(cur==null){
+      return `<span class="ov-rank-move ov-rank-new" title="Sem meta/realizado neste mês">—</span>`;
+    }
+    if(prev==null){
+      return `<span class="ov-rank-move ov-rank-new" title="Sem dados no mês anterior para comparar · posição atual #${cur}">novo</span>`;
+    }
+    const delta = prev - cur; // positivo = subiu no ranking (número menor = posição melhor)
+    if(delta===0){
+      return `<span class="ov-rank-move ov-rank-flat" title="Manteve a posição #${cur} no ranking">＝</span>`;
+    }
+    if(delta>0){
+      return `<span class="ov-rank-move ov-rank-up" title="Subiu ${delta} posição(ões) no ranking: #${prev} → #${cur}">▲ ${delta}</span>`;
+    }
+    return `<span class="ov-rank-move ov-rank-down" title="Caiu ${Math.abs(delta)} posição(ões) no ranking: #${prev} → #${cur}">▼ ${Math.abs(delta)}</span>`;
+  }
+
   // Tabela: agrupa times por regional
   let tb='';
   let rgCount=0;
@@ -10610,7 +10722,7 @@ function renderOverview(){
 
       const hubColor = tm.color||rg.color;
       tb+=`<tr>
-        <td></td>
+        <td style="text-align:center">${_ovRankMoveHtml(tm.id)}</td>
         <td class="hub-name-cell">
           <div class="hub-name-inner" style="--hub-color:${hubColor}">
             <div class="hub-title">${tm.nome}</div>
@@ -13913,7 +14025,15 @@ function psvSalvarCnpj() {
 
   // 1. DB.users
   var dbUser = (DB.users || []).find(function(x) { return String(x.id) === String(u.id); });
-  if (dbUser) dbUser.cnpj = val;
+  if (dbUser) {
+    dbUser.cnpj = val;
+    // [FIX] O merge de users é "nuvem vence em empate" (mergeArrCloudWins),
+    // exigindo _ts estritamente mais recente para o local prevalecer. Sem
+    // bumpar _ts aqui, o próximo sync podia reverter o CNPJ para o valor
+    // antigo da nuvem — exatamente o mesmo problema já corrigido para a
+    // inativação de vendedor.
+    dbUser._ts = Date.now();
+  }
 
   // 2. currentUser em memória
   currentUser.cnpj = val;
@@ -14022,7 +14142,18 @@ var _psvP = { cur: 0, tot: 4, ch: {},
   nomes: ['KPIs + Gráficos','Desempenho por HC','Mapa + Detrator & Promotor','Plano de Ação'] };
 
 // ── ABRIR ────────────────────────────────────────────────────────
-function psvPlay() {
+async function psvPlay() {
+  // [FIX] Pede fullscreen já na primeira chamada, ainda dentro do gesto de
+  // clique original do usuário. Antes, quando a página PSV não estava ativa,
+  // essa chamada só acontecia depois do setTimeout(psvPlay, 700) abaixo — e
+  // navegadores exigem que requestFullscreen() seja chamado sincronamente
+  // a partir de um gesto do usuário; dentro de um setTimeout ela é
+  // silenciosamente rejeitada (a apresentação abria fora da tela cheia).
+  try {
+    var el = document.documentElement;
+    (el.requestFullscreen || el.webkitRequestFullscreen || function(){}).call(el);
+  } catch(e){}
+
   // Se a PSV ainda não está ativa, navega até ela e tenta novamente
   if (!document.getElementById('page-psv').classList.contains('active')) {
     goPage('psv', document.getElementById('nav-psv'));
@@ -14034,11 +14165,17 @@ function psvPlay() {
   ov.style.display = 'flex';
   _psvP.cur = 0;
 
-  // Fullscreen
-  try {
-    var el = document.documentElement;
-    (el.requestFullscreen || el.webkitRequestFullscreen || function(){}).call(el);
-  } catch(e){}
+  // [FIX] "Apresentar" só usava o que já estava em memória local — se outro
+  // supervisor/gerente tivesse editado algo e este dispositivo ainda não
+  // tivesse sincronizado, a apresentação mostrava dados desatualizados.
+  // Busca a versão mais recente da nuvem (mesclando com edições locais ainda
+  // não enviadas) e só então repopula a tela PSV e os slides.
+  try{
+    await cloudPull(true);
+    renderPSV();
+  }catch(e){
+    console.warn('[psvPlay] cloudPull falhou — exibindo dados locais.', e);
+  }
 
   // Sincroniza subtítulo
   var s = document.getElementById('psvp-sub');
@@ -14509,9 +14646,15 @@ function _psvPKey(e) {
   if (e.key==='ArrowLeft' ||e.key==='ArrowUp')       psvNav(-1);
 }
 function _psvPFsChg() {
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-    if (document.getElementById('psv-pres').style.display !== 'none') psvStop();
-  }
+  // [FIX] Antes, qualquer saída do modo fullscreen no documento fechava a
+  // apresentação inteira — inclusive fullscreenchange disparado pelo iframe
+  // da Google Agenda (que tem allowfullscreen) quando o CONTEÚDO EMBUTIDO
+  // entra/sai de fullscreen, sem relação nenhuma com a apresentação em si.
+  // Isso podia fechar a tela no meio da navegação, dando a impressão de que
+  // o botão "Próximo" tinha parado de responder. Fechar a apresentação já é
+  // coberto explicitamente pela tecla Escape (_psvPKey) e pelo botão de
+  // fechar — nenhum dos dois depende do estado nativo de fullscreen — então
+  // este handler não precisa (e não deve) fechar nada sozinho.
 }
 
 </script>
