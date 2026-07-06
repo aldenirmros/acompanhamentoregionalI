@@ -6670,7 +6670,7 @@ function delTime(id){
     if(!DB.deleted.userIds.includes(String(x.id))) DB.deleted.userIds.push(String(x.id));
   });
   DB.times=(DB.times||[]).filter(x=>x.id!==id);
-  DB.sellers.forEach(s=>{ if(s.timeId===id) s.timeId=null; });
+  DB.sellers.forEach(s=>{ if(s.timeId===id){ s.timeId=null; s._ts=Date.now(); } });
   DB.users=(DB.users||[]).filter(x=>!(x.role==='supervisor'&&x.timeId===id));
   saveDB(); renderSellers();
   toast(`HUB "${t.nome}" removido`,'🗑️');
@@ -6739,7 +6739,7 @@ function delRegional(id){
     if(!DB.deleted.userIds.includes(String(u.id))) DB.deleted.userIds.push(String(u.id));
   });
   DB.times=(DB.times||[]).filter(t=>t.regionalId!==id);
-  DB.sellers.forEach(s=>{ if(tids.includes(s.timeId)) s.timeId=null; });
+  DB.sellers.forEach(s=>{ if(tids.includes(s.timeId)){ s.timeId=null; s._ts=Date.now(); } });
   DB.users=(DB.users||[]).filter(u=>u.regionalId!==id);
   DB.regionais=(DB.regionais||[]).filter(x=>x.id!==id);
   saveDB(); renderRegionais(); populateDashFilter();
@@ -8849,6 +8849,15 @@ function _deepMerge(cloud, local) {
 
   // ── ativacaoManual: merge de 3 níveis {ymKey: {userId: val}} — union de usuários ──
   // Garante que os dados de diferentes usuários sejam somados, não substituídos
+  //
+  // [FIX] Igual ao bug já corrigido em hubMetas/sellerMetas/mValues: esta função
+  // decidia local-vs-cloud por userId usando o flag GLOBAL cloudIsNewer
+  // (baseado em DB._savedAt do banco inteiro). Bastava outra sessão salvar
+  // qualquer outra coisa um pouco depois para "cloud vencer" e a ativação
+  // manual que você acabou de digitar ser descartada em favor do valor antigo
+  // da nuvem. Agora o usuário logado sempre prevalece na SUA própria entrada
+  // — os demais userIds vindos da nuvem continuam intactos (união, não
+  // substituição), então isso não afeta os dados de outros usuários.
   {
     function mergeAtivacao3Level(cld, loc) {
       const out = JSON.parse(JSON.stringify(cld||{}));
@@ -8856,15 +8865,11 @@ function _deepMerge(cloud, local) {
         const locEntry = loc[ymKey];
         if(locEntry != null && typeof locEntry === 'object' && !Array.isArray(locEntry)){
           if(!out[ymKey] || typeof out[ymKey] !== 'object') out[ymKey] = {};
-          // Itera pelos userIds do local e mescla
+          // Local sempre vence para os userIds presentes localmente — o
+          // dicionário local já herda o último estado conhecido da nuvem
+          // (de syncs anteriores) mais a edição que acabou de ser feita.
           Object.keys(locEntry).forEach(uid => {
-            if(cloudIsNewer){
-              // Cloud vence: só usa local se cloud não tiver o userId
-              if(out[ymKey][uid] === undefined) out[ymKey][uid] = locEntry[uid];
-            } else {
-              // Local vence: sobrescreve o userId do usuário logado
-              out[ymKey][uid] = locEntry[uid];
-            }
+            out[ymKey][uid] = locEntry[uid];
           });
         } else if(locEntry != null) {
           // Legado: era número direto → mantém se cloud não tiver
@@ -8878,25 +8883,24 @@ function _deepMerge(cloud, local) {
   }
 
   if (local.psvData && Object.keys(local.psvData).length)
-    r.psvData         = mergeDictCloudWins(r.psvData,            local.psvData);
+    r.psvData         = mergeDict(r.psvData,            local.psvData);
 
-  // ── diasConfig: merge por chave completa (ymKey ou u{id}_ymKey) — local vence em totalFeriados ──
+  // ── diasConfig: merge por chave completa (ymKey ou u{id}_ymKey) — local vence sempre ──
+  // [FIX] total/passed usavam o flag GLOBAL cloudIsNewer (mesmo bug já
+  // corrigido em hubMetas/sellerMetas/mValues/ativacaoManual) — outra sessão
+  // salvando qualquer outra coisa um pouco depois podia fazer a nuvem
+  // "vencer" e reverter os dias úteis configurados/marcados. Local sempre
+  // vence quando presente, pelo mesmo motivo: já herda o último estado
+  // conhecido da nuvem mais a edição recente.
   {
     const cld = r.diasConfig     || {};
     const loc = local.diasConfig || {};
     const merged = JSON.parse(JSON.stringify(cld));
     Object.keys(loc).forEach(fullKey => {
       if (!merged[fullKey]) merged[fullKey] = {};
-      const cldCfg = cld[fullKey] || {};
       const locCfg = loc[fullKey] || {};
-      // total / passed: local vence (ou cloud se cloudIsNewer)
-      if(!cloudIsNewer){
-        if(locCfg.total  != null) merged[fullKey].total  = locCfg.total;
-        if(locCfg.passed != null) merged[fullKey].passed = locCfg.passed;
-      } else {
-        if(merged[fullKey].total  == null && locCfg.total  != null) merged[fullKey].total  = locCfg.total;
-        if(merged[fullKey].passed == null && locCfg.passed != null) merged[fullKey].passed = locCfg.passed;
-      }
+      if(locCfg.total  != null) merged[fullKey].total  = locCfg.total;
+      if(locCfg.passed != null) merged[fullKey].passed = locCfg.passed;
       // totalFeriados: local sempre vence (é uma entrada do usuário local, individual por usuário)
       if(locCfg.totalFeriados != null) merged[fullKey].totalFeriados = locCfg.totalFeriados;
     });
@@ -11804,6 +11808,9 @@ function doChangePassword(){
   if(newPw!==confPw){ showWarn('⚠️ A confirmação não confere com a nova senha.'); return; }
 
   user.password=newPw;
+  // [FIX] users usa mergeArrCloudWins (nuvem vence em empate) — sem bumpar
+  // _ts, uma sessão desatualizada podia reverter a troca de senha.
+  user._ts = Date.now();
   // Atualiza sessão, cache e seed em memória
   currentUser={...currentUser,password:newPw};
   setSession(currentUser);
@@ -12048,6 +12055,10 @@ function confirmTransfer(){
   s.transfers.push({fromTimeId, toTimeId, date});
   s.timeId    = toTimeId;
   s.activeFrom = date; // nova data de início no hub destino
+  // [FIX] marca timestamp de alteração — sem isso, uma sessão desatualizada
+  // (ainda mostrando o HC no HUB antigo) podia reverter a transferência no
+  // próximo sync dela.
+  s._ts = Date.now();
 
   saveDB();
   closeTransferModal();
@@ -12222,6 +12233,10 @@ function saveEditUser(){
   x.color      = colorMap[role]||x.color;
   if(password && password.length>=4) x.password = password;
   if(_newUserPhoto) x.photo = _newUserPhoto;
+  // [FIX] users usa mergeArrCloudWins (nuvem vence em empate) — sem bumpar
+  // _ts, qualquer sessão desatualizada podia reverter nome/role/HUB/
+  // regional/cor/senha/foto para o valor antigo no próximo sync dela.
+  x._ts = Date.now();
 
   saveDB();
   closeEditUserModal();
@@ -13488,7 +13503,7 @@ function psvUploadPhoto(e,sid){
     _savePhotos();
     // Salva também no banco de dados do vendedor
     const s=DB.sellers.find(x=>x.id===sid);
-    if(s){ s.photo=data; saveDB(); }
+    if(s){ s.photo=data; s._ts=Date.now(); saveDB(); }
     _renderPhotosRow(getScopedSellers());
   });
 }
@@ -13674,6 +13689,11 @@ function saveHubInlineEdit(){
   const supNome = document.getElementById('hub-ie-sup-nome').value.trim();
   const sup = (DB.users||[]).find(u=>u.role==='supervisor'&&u.timeId===tid);
   if(sup && supNome) sup.nome = supNome;
+  // [FIX] times/users usam mergeArrCloudWins (nuvem vence em empate) — sem
+  // bumpar _ts, uma sessão desatualizada podia reverter o nome do HUB/
+  // supervisor para o valor antigo no próximo sync dela.
+  t._ts = Date.now();
+  if(sup) sup._ts = Date.now();
   saveDB();
   closeHubInlineEditModal();
   renderTimesList();
@@ -13761,6 +13781,11 @@ function saveHubEdit(){
   const supNome = document.getElementById('hub-edit-sup-nome').value.trim();
   const sup = (DB.users||[]).find(u=>u.role==='supervisor' && u.timeId===tid);
   if(sup && supNome) sup.nome = supNome;
+  // [FIX] times/users usam mergeArrCloudWins (nuvem vence em empate) — sem
+  // bumpar _ts, uma sessão desatualizada podia reverter o nome do HUB/
+  // supervisor para o valor antigo no próximo sync dela.
+  t._ts = Date.now();
+  if(sup) sup._ts = Date.now();
   saveDB();
   closeHubEditModal();
   renderPSV();
