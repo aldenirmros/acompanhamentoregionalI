@@ -6561,6 +6561,7 @@ function toggleSellerInativo(id, inativo){
     openInativarModal(id);
   } else {
     s.inativo=false; delete s.desligamento;
+    s._ts = Date.now(); // [FIX] marca timestamp de alteração p/ o merge não reverter em outra sessão
     saveDB(); renderSellers(); renderDash(); populateQESellers();
     toast(`${s.name} reativado ✓`);
   }
@@ -6587,6 +6588,7 @@ function confirmInativar(id){
   const dt=document.getElementById('inativar-date')?.value;
   if(!dt){ toast('Informe a data','⚠️'); return; }
   s.inativo=true; s.desligamento=dt;
+  s._ts = Date.now(); // [FIX] marca timestamp de alteração p/ o merge não reverter em outra sessão
   saveDB(); renderSellers(); renderDash(); populateQESellers();
   document.getElementById('inativar-modal')?.remove();
   toast(`${s.name} inativado a partir de ${dt.split('-').reverse().join('/')}`);
@@ -8326,15 +8328,36 @@ async function _runSync() {
       //   • Sem mode:'no-cors', a resposta JSON é totalmente legível.
       //
       // [V4-P2] _dirtyTables: envia apenas tabelas marcadas como alteradas.
-      // Tombstones de entidades (sellers/times/regionais/users) NÃO são gravados
-      // no Sheets — são usados apenas localmente para filtrar o merge desta sessão.
+      // [FIX] Os tombstones de entidades (sellers/times/regionais/users) PRECISAM
+      // ser gravados no Sheets (aba 'deleted'). Antes eram zerados aqui antes do
+      // POST, então a exclusão nunca chegava ao servidor — qualquer outra sessão/
+      // aba/dispositivo com o registro antigo ainda em memória reintroduzia o
+      // usuário/vendedor/time/regional excluído no próximo sync dela, porque
+      // mergeArrCloudWins() trata "sumiu da nuvem" como "novo, ainda não
+      // sincronizado" quando não há tombstone para diferenciar os dois casos.
+      // toSend.deleted já é o resultado do _deepMerge (união dos tombstones da
+      // nuvem + locais, com IDs protegidos já filtrados), então é seguro enviá-lo
+      // como está — não precisa (e não deve) ser zerado.
       const toPush = JSON.parse(JSON.stringify(toSend));
-      toPush.deleted = {userIds:[], sellerIds:[], timeIds:[], regionalIds:[]};
 
-      // [V-3 MELHORIA 1] — inclui versão do cliente no payload para detecção de conflito
       // [SAFETY-PSV] Restringe as tabelas PSV (psv_plano_acao, psv_tpv,
-      // psv_detrator_promotor) do payload de SAÍDA às linhas do escopo que o
-      // usuário atual está de fato autorizado a escrever (_getPsvOwnerUserId()).
+      // psv_detrator_promotor) do payload de SAÍDA às linhas do usuário
+      // LOGADO (_getPsvSelfUserId()) — NUNCA ao "dono visualizado"
+      // (_getPsvOwnerUserId()), que pode ser outro usuário quando um
+      // gerente/regional está com um HUB de outro supervisor filtrado na
+      // tela PSV.
+      //
+      // [FIX] Antes este filtro usava _getPsvOwnerUserId(), que nesse caso
+      // retorna o id do SUPERVISOR sendo visualizado. Resultado: qualquer
+      // sync automático disparado com aquele filtro ativo — mesmo por algo
+      // sem relação nenhuma com PSV, como lançar uma venda — selecionava e
+      // reenviava justamente a cópia local (somente leitura, possivelmente
+      // desatualizada) dos dados PSV do OUTRO usuário, e upsertTabByScope()
+      // no servidor substituía integralmente as linhas daquele userId+ymKey
+      // por essa cópia antiga — apagando silenciosamente edições mais
+      // recentes que o próprio supervisor tivesse feito nesse meio-tempo.
+      // Usando sempre o próprio usuário logado, essas cópias de leitura de
+      // terceiros nunca mais são reenviadas como se fossem gravações.
       //
       // Por quê: DB.psvTpv/psvPlano/psvDp no cliente contêm dados de TODOS os
       // usuários — eles são mesclados durante os pulls para permitir que
@@ -8359,7 +8382,7 @@ async function _runSync() {
       const tablePayload = dbToTables(toPush);
       if(!_psvFullPushOverride){
         try{
-          const _psvOwner = _getPsvOwnerUserId();
+          const _psvOwner = _getPsvSelfUserId();
           ['psv_plano_acao','psv_tpv','psv_detrator_promotor'].forEach(_tbl=>{
             if(Array.isArray(tablePayload[_tbl])){
               tablePayload[_tbl] = tablePayload[_tbl].filter(_r => String(_r.userId||'')===_psvOwner);
@@ -8744,9 +8767,20 @@ function _deepMerge(cloud, local) {
     return mergeDict(cld, loc);
   }
 
-  r.hubMetas          = mergeDictCloudWins(r.hubMetas,          local.hubMetas);
-  r.sellerMetas       = mergeDictCloudWins(r.sellerMetas,        local.sellerMetas);
-  r.mValues           = mergeDictCloudWins(r.mValues,            local.mValues);
+  // [FIX] hubMetas/sellerMetas/mValues (o "Compromisso" da UI) usavam
+  // mergeDictCloudWins, cuja decisão é baseada em DB._savedAt — um timestamp
+  // ÚNICO para o banco inteiro, não por campo. Como _savedAt é atualizado a
+  // cada saveDB() (qualquer edição, em qualquer tela), bastava outra sessão
+  // salvar QUALQUER outra coisa um pouco depois para o merge concluir
+  // "nuvem é mais nova" e substituir o dicionário inteiro de metas — inclusive
+  // o valor de compromisso que você acabou de editar, revertendo-o.
+  // mergeDict() já mescla por entrada (ymKey → id), preservando tudo que não
+  // foi tocado; usar sempre "local vence" aqui é seguro porque o dicionário
+  // local, no momento do push, já contém o último estado conhecido da nuvem
+  // (herdado dos syncs anteriores) mais a edição que acabou de ser feita.
+  r.hubMetas          = mergeDict(r.hubMetas,          local.hubMetas);
+  r.sellerMetas       = mergeDict(r.sellerMetas,        local.sellerMetas);
+  r.mValues           = mergeDict(r.mValues,            local.mValues);
 
   // ── ativacaoManual: merge de 3 níveis {ymKey: {userId: val}} — union de usuários ──
   // Garante que os dados de diferentes usuários sejam somados, não substituídos
@@ -11382,6 +11416,15 @@ function _getPsvOwnerUserId(){
   return String(u.id);
 }
 
+// [FIX] _getPsvOwnerUserId() é para LEITURA/visualização e pode retornar o id
+// de OUTRO usuário (o supervisor cujo HUB está filtrado na tela). Ela nunca
+// deve ser usada para decidir o que É ENVIADO ao servidor — só o que o usuário
+// logado tem permissão de gravar. _getPsvSelfUserId() é sempre o próprio
+// usuário logado, independente de qualquer filtro de HUB ativo na tela.
+function _getPsvSelfUserId(){
+  return String(currentUser?.id || 'default');
+}
+
 // Retorna true quando o usuário está visualizando dados de OUTRO usuário
 // (ex: Gerente com HUB filtrado → vendo o plano do Supervisor desse HUB).
 // Nesse modo o Plano de Ação fica em modo somente-leitura.
@@ -12476,8 +12519,10 @@ document.getElementById('m-popup-input').addEventListener('keydown', e=>{
       // página, cópias locais de dados PSV de OUTROS usuários — só as linhas
       // que o usuário atual está autorizado a escrever. Ver comentário
       // completo em _runSync, junto à montagem do tablePayload principal.
+      // [FIX] Usa _getPsvSelfUserId() (sempre o usuário logado), não
+      // _getPsvOwnerUserId() (pode ser outro usuário quando há HUB filtrado).
       try{
-        const _psvOwner = _getPsvOwnerUserId();
+        const _psvOwner = _getPsvSelfUserId();
         ['psv_plano_acao','psv_tpv','psv_detrator_promotor'].forEach(_tbl=>{
           if(Array.isArray(tablePayload[_tbl])){
             tablePayload[_tbl] = tablePayload[_tbl].filter(_r => String(_r.userId||'')===_psvOwner);
