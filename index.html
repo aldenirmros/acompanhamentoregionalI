@@ -7684,7 +7684,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyD6di0kLOlyXYpRt7rXqebYE9heI1c4jelqtsPznQAFFniFwkipeKAiIXveEWyPUyD5Q/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzC6jrSjRP5z57tbx-WDo-eUUCYGUCOVJvkFHfxVYbHP26q9llPUbJxaon1dTSG5I1h2w/exec';
 
 function getCfg(){
   try{
@@ -7707,7 +7707,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyD6di0kLOlyXYpRt7rXqebYE9heI1c4jelqtsPznQAFFniFwkipeKAiIXveEWyPUyD5Q/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzC6jrSjRP5z57tbx-WDo-eUUCYGUCOVJvkFHfxVYbHP26q9llPUbJxaon1dTSG5I1h2w/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7716,7 +7716,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbyD6di0kLOlyXYpRt7rXqebYE9heI1c4jelqtsPznQAFFniFwkipeKAiIXveEWyPUyD5Q/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzC6jrSjRP5z57tbx-WDo-eUUCYGUCOVJvkFHfxVYbHP26q9llPUbJxaon1dTSG5I1h2w/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -8829,7 +8829,8 @@ function _deepMerge(cloud, local) {
     });
     return [...map.values()];
   }
-  // ── mergeArrCloudWins: nuvem vence (para users/times/regionais — admin gerencia na nuvem) ──
+  // ── mergeArrCloudWins: nuvem vence em empate — mantida como fallback para
+  // quando ainda não há baseline desta sessão (ver mergeArrFieldLevel abaixo). ──
   function mergeArrCloudWins(cloudArr, localArr) {
     const map = new Map((cloudArr||[]).map(x => [String(x.id), x]));
     (localArr||[]).forEach(loc => {
@@ -8841,10 +8842,73 @@ function _deepMerge(cloud, local) {
     return [...map.values()];
   }
 
+  // ── [FIX-SYNC] mergeArrFieldLevel: merge de 3 vias (nuvem × local × última
+  // sincronização confirmada) CAMPO A CAMPO — usado em users/times/regionais.
+  //
+  // Problema do mergeArrCloudWins(): decide por REGISTRO INTEIRO, usando um
+  // único _ts por linha. Se a Sessão A editar o CNPJ % de um usuário e, quase
+  // ao mesmo tempo, a Sessão B (um admin, ou outra aba do mesmo usuário)
+  // editar QUALQUER outro campo desse mesmo usuário (cor, HUB, regional,
+  // agenda...), quem sincronizar por último "leva tudo" — o registro inteiro
+  // de quem perdeu o empate de _ts é descartado, inclusive campos que essa
+  // sessão nunca tocou. Isso explica o CNPJ "às vezes não salva/apaga": não é
+  // preciso conflito no MESMO campo, basta uma edição concorrente em QUALQUER
+  // campo do mesmo usuário/time/regional.
+  //
+  // Solução: comparar local × baseline (snapshot da última sincronização
+  // CONFIRMADA desta sessão — _v4DbSnapshot, já existente, capturado em
+  // _v4CaptureSnapshot() logo após cada POST bem-sucedido) campo a campo:
+  //   • campo IGUAL ao baseline    → esta sessão não editou esse campo →
+  //     usa o valor da NUVEM (pode ter mudado por outra sessão nesse meio-tempo).
+  //   • campo DIFERENTE do baseline → esta sessão editou de fato esse campo →
+  //     preserva o valor local, sem tocar nos demais campos do registro.
+  // Nenhum campo de ninguém é descartado por um _ts global do registro inteiro.
+  //
+  // Sem baseline ainda (primeiro sync da sessão, ou registro totalmente novo)
+  // → cai de volta na regra antiga (mergeArrCloudWins), que já é segura nesse caso.
+  function _v4Baseline(tableKey) {
+    try { return JSON.parse(_v4DbSnapshot[tableKey] || '[]'); } catch(e) { return []; }
+  }
+  function mergeArrFieldLevel(tableKey, cloudArr, localArr) {
+    const baseline = new Map(_v4Baseline(tableKey).map(x => [String(x.id), x]));
+    const cloudMap = new Map((cloudArr||[]).map(x => [String(x.id), x]));
+    const result   = new Map(cloudMap); // começa 100% a partir da nuvem
+    (localArr||[]).forEach(loc => {
+      const key  = String(loc.id);
+      const cl   = cloudMap.get(key);
+      const base = baseline.get(key);
+      if (!cl) {
+        // Registro novo local (ex: usuário/time recém-criado), ainda não confirmado na nuvem
+        result.set(key, loc);
+        return;
+      }
+      if (!base) {
+        // Sem baseline desta sessão para este registro — mantém a regra antiga
+        // (registro inteiro mais recente por _ts vence), segura como fallback
+        // de primeira sincronização.
+        if ((loc._ts||0) > (cl._ts||0)) result.set(key, loc);
+        return;
+      }
+      // Merge campo a campo: só sobrescreve o que esta sessão de fato editou
+      const merged = {...cl};
+      let touched = false;
+      Object.keys(loc).forEach(field => {
+        if (field === '_ts') return;
+        if (JSON.stringify(loc[field]) !== JSON.stringify(base[field])) {
+          merged[field] = loc[field];
+          touched = true;
+        }
+      });
+      if (touched) merged._ts = Math.max(loc._ts||0, cl._ts||0, Date.now());
+      result.set(key, merged);
+    });
+    return [...result.values()];
+  }
+
   r.sellers   = mergeArr(r.sellers,       local.sellers);
-  r.times     = mergeArrCloudWins(r.times,     local.times);
-  r.regionais = mergeArrCloudWins(r.regionais, local.regionais);
-  r.users     = mergeArrCloudWins(r.users,     local.users);
+  r.times     = mergeArrFieldLevel('times',     r.times,     local.times);
+  r.regionais = mergeArrFieldLevel('regionais', r.regionais, local.regionais);
+  r.users     = mergeArrFieldLevel('users',     r.users,     local.users);
 
   // ── DB.deleted: union de tombstones (cloud + local) ─────────────────────
   if(!r.deleted||typeof r.deleted!=='object') r.deleted={userIds:[],sellerIds:[],timeIds:[],regionalIds:[]};
@@ -10937,6 +11001,73 @@ function renderOverview(){
 
   document.getElementById('ov-tb').innerHTML=tb;
 }
+
+// ══════════════════════════════════════════════════════════
+//  [FEATURE] Navegação por setas entre os inputs de "Resultado por Time"
+//  (div #ov-result-time-card / tbody #ov-tb, página Visão Geral por Regional).
+//  ← → : move para o input anterior/seguinte na mesma linha (e pula para a
+//        linha seguinte/anterior ao chegar na borda).
+//  ↑ ↓ : move para o input na mesma posição da linha anterior/seguinte,
+//        ignorando linhas de cabeçalho de regional (que não têm inputs).
+//  Setas ↑/↓ sempre navegam (sobrepõem o spinner nativo do <input type=number>).
+//  Setas ←/→ só navegam quando o cursor já está na borda do texto do campo —
+//  no meio do texto, continuam movendo o cursor normalmente.
+// ══════════════════════════════════════════════════════════
+(function(){
+  function _ovInputRows(){
+    const tbody = document.getElementById('ov-tb');
+    if(!tbody) return [];
+    const rows = [];
+    tbody.querySelectorAll('tr').forEach(tr=>{
+      const inputs = Array.from(tr.querySelectorAll('input.m-inline-inp'));
+      if(inputs.length) rows.push(inputs);
+    });
+    return rows;
+  }
+  function _ovCaretAtStart(el){
+    try { return el.selectionStart === 0 && el.selectionEnd === 0; }
+    catch(e){ return true; } // navegador não suporta selectionStart em type=number → sempre navega
+  }
+  function _ovCaretAtEnd(el){
+    try { return el.selectionStart === el.value.length && el.selectionEnd === el.value.length; }
+    catch(e){ return true; }
+  }
+  document.addEventListener('keydown', function(ev){
+    if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].indexOf(ev.key)===-1) return;
+    const el = ev.target;
+    if(!(el instanceof HTMLInputElement) || !el.classList.contains('m-inline-inp')) return;
+    const tbody = document.getElementById('ov-tb');
+    if(!tbody || !tbody.contains(el)) return;
+
+    const rows = _ovInputRows();
+    let ri=-1, ci=-1;
+    for(let r=0;r<rows.length;r++){
+      const c = rows[r].indexOf(el);
+      if(c!==-1){ ri=r; ci=c; break; }
+    }
+    if(ri===-1) return;
+
+    let target = null;
+    if(ev.key==='ArrowLeft'){
+      if(!_ovCaretAtStart(el)) return; // deixa o cursor mover dentro do texto
+      if(ci>0) target = rows[ri][ci-1];
+      else if(ri>0) target = rows[ri-1][rows[ri-1].length-1];
+    } else if(ev.key==='ArrowRight'){
+      if(!_ovCaretAtEnd(el)) return;
+      if(ci<rows[ri].length-1) target = rows[ri][ci+1];
+      else if(ri<rows.length-1) target = rows[ri+1][0];
+    } else if(ev.key==='ArrowUp'){
+      if(ri>0){ const pr=rows[ri-1]; target = pr[Math.min(ci, pr.length-1)]; }
+    } else if(ev.key==='ArrowDown'){
+      if(ri<rows.length-1){ const nr=rows[ri+1]; target = nr[Math.min(ci, nr.length-1)]; }
+    }
+    if(target){
+      ev.preventDefault();
+      target.focus();
+      target.select();
+    }
+  });
+})();
 
 // ══════════════════════════════════════════════════════════
 //  Exportar "Resultado por Time" como JPG · html2canvas
@@ -14234,11 +14365,20 @@ function _psvRestaurarCnpjLocal() {
   try {
     var lsKey = 'bi_cnpj_' + String(u.id);
     var local = localStorage.getItem(lsKey);
-    if (local && !currentUser.cnpj) {
+    // [FIX-CNPJ] Antes usava "!currentUser.cnpj", que trata 0 (0%) como
+    // "vazio" e forçava restaurar o valor do localStorage por cima de um
+    // 0% legitimamente salvo na nuvem. Agora só restaura quando o campo
+    // realmente não foi carregado (null/undefined/''), nunca quando já
+    // existe um valor válido — mesmo que seja zero.
+    var cloudEmpty = currentUser.cnpj === undefined || currentUser.cnpj === null || currentUser.cnpj === '';
+    if (local && cloudEmpty) {
       currentUser.cnpj = local;
       setSession(currentUser);
       var dbUser = (DB.users || []).find(function(x){ return String(x.id) === String(u.id); });
-      if (dbUser && !dbUser.cnpj) dbUser.cnpj = local;
+      if (dbUser) {
+        var dbEmpty = dbUser.cnpj === undefined || dbUser.cnpj === null || dbUser.cnpj === '';
+        if (dbEmpty) dbUser.cnpj = local;
+      }
     }
   } catch(e) {}
 }
