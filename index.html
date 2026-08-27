@@ -7684,7 +7684,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzC6jrSjRP5z57tbx-WDo-eUUCYGUCOVJvkFHfxVYbHP26q9llPUbJxaon1dTSG5I1h2w/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwP0cC9XYGjpiP_oCrO4_I62QMcOkdXEeUa4Cg-c1j0YGE2WSZkSC5P4MyfET-jrIF82w/exec';
 
 function getCfg(){
   try{
@@ -7707,7 +7707,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzC6jrSjRP5z57tbx-WDo-eUUCYGUCOVJvkFHfxVYbHP26q9llPUbJxaon1dTSG5I1h2w/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwP0cC9XYGjpiP_oCrO4_I62QMcOkdXEeUa4Cg-c1j0YGE2WSZkSC5P4MyfET-jrIF82w/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7716,7 +7716,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbzC6jrSjRP5z57tbx-WDo-eUUCYGUCOVJvkFHfxVYbHP26q9llPUbJxaon1dTSG5I1h2w/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwP0cC9XYGjpiP_oCrO4_I62QMcOkdXEeUa4Cg-c1j0YGE2WSZkSC5P4MyfET-jrIF82w/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
