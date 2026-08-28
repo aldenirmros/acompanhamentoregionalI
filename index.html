@@ -3830,15 +3830,7 @@ function _v4MarkAllDirty() {
 // No próximo sync, compara JSON do estado atual com o snapshot.
 // Tabelas sem mudança são excluídas do payload → menos tráfego e menos conflitos.
 // É mais confiável que rastrear manualmente cada ponto de mutação.
-// [FIX-LOCK-CONTENTION] Persistido em localStorage para sobreviver a
-// recarregamentos de página. Antes, por ser variável em memória, TODA
-// recarga de página zerava o snapshot e forçava o próximo sync a reenviar
-// as 17 tabelas inteiras (full save), disputando o mesmo LockService.getDocumentLock()
-// entre usuários simultâneos — causa raiz identificada da fila/trava de POSTs.
-let _v4DbSnapshot = (function(){
-  try { return JSON.parse(localStorage.getItem('bi_v4_snapshot') || '{}'); }
-  catch(e) { return {}; }
-})(); // { tableName: jsonString }
+let _v4DbSnapshot = {}; // { tableName: jsonString }
 
 // Chaves do DB que mapeiam para tabelas do Sheets (via dbToTables)
 const _v4DB_TABLE_MAP = {
@@ -3875,9 +3867,6 @@ function _v4CaptureSnapshot() {
         try { _v4DbSnapshot[tableKey] = JSON.stringify(DB[k]); } catch(e) {}
       }
     });
-    // [FIX-LOCK-CONTENTION] Persiste o snapshot — sem isso, um recarregamento
-    // de página zerava _v4DbSnapshot e forçava full save na próxima sync.
-    try { localStorage.setItem('bi_v4_snapshot', JSON.stringify(_v4DbSnapshot)); } catch(e) {}
   } catch(e) {}
 }
 
