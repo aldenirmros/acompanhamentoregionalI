@@ -14317,7 +14317,8 @@ function psvSalvarAgenda() {
 
   // 1. DB.users (fonte principal — vai para o Sheets no próximo push)
   var dbUser = (DB.users || []).find(function(x) { return String(x.id) === String(u.id); });
-  if (dbUser) dbUser.agendaUrl = url;
+  if (dbUser) { dbUser.agendaUrl = url; dbUser._ts = Date.now(); }  // [FIX] sem _ts novo a nuvem vencia o merge e apagava a agenda
+  _psvPendSet('agenda', String(u.id), {val:url});                    // [FIX] reaplica até um sync confirmado
 
   // 2. currentUser em memória
   currentUser.agendaUrl = url;
@@ -14371,7 +14372,7 @@ function _psvPendSet(kind, key, data){
 // Remove pendências já cobertas por um sync que começou DEPOIS delas
 function _psvPendClear(syncStartedAt){
   var p = _psvPendLoad(), ch = false;
-  ['cnpj','atv','safra'].forEach(function(k){
+  ['cnpj','atv','safra','agenda'].forEach(function(k){
     Object.keys(p[k]||{}).forEach(function(key){
       if((p[k][key].ts||0) < syncStartedAt){ delete p[k][key]; ch = true; }
     });
@@ -14386,6 +14387,12 @@ function _psvReapplyPending(){
       var du = (DB.users||[]).find(function(x){ return String(x.id) === String(uid); });
       if(du && String(du.cnpj == null ? '' : du.cnpj) !== val){ du.cnpj = val; du._ts = Date.now(); changed = true; }
       if(currentUser && String(currentUser.id) === String(uid) && String(currentUser.cnpj == null ? '' : currentUser.cnpj) !== val){ currentUser.cnpj = val; changed = true; }
+    });
+    Object.keys(p.agenda||{}).forEach(function(uid){
+      var e = p.agenda[uid], val = e.val == null ? '' : String(e.val);
+      var du = (DB.users||[]).find(function(x){ return String(x.id) === String(uid); });
+      if(du && String(du.agendaUrl == null ? '' : du.agendaUrl) !== val){ du.agendaUrl = val; du._ts = Date.now(); changed = true; }
+      if(currentUser && String(currentUser.id) === String(uid) && String(currentUser.agendaUrl == null ? '' : currentUser.agendaUrl) !== val){ currentUser.agendaUrl = val; changed = true; }
     });
     Object.keys(p.atv||{}).forEach(function(k){
       var e = p.atv[k];
@@ -14597,7 +14604,7 @@ function _psvRestaurarAgendaLocal() {
       setSession(currentUser);
       // Também grava em DB.users para o próximo saveDB() carregar certo
       var dbUser = (DB.users || []).find(function(x){ return String(x.id) === String(u.id); });
-      if (dbUser && !dbUser.agendaUrl) dbUser.agendaUrl = local;
+      if (dbUser && !dbUser.agendaUrl) { dbUser.agendaUrl = local; dbUser._ts = Date.now(); }
     }
   } catch(e) {}
 }
