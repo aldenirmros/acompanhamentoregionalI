@@ -7366,26 +7366,41 @@ function saveAtivacao(){
 }
 
 // ── Ativação manual na guia PSV (espelho do dashboard) ──
-function savePsvAtivacao(){
-  if(_psvIsReadOnly()){ toast('⚠️ Modo visualização — limpe o filtro de HUB para editar o seu próprio plano.','⚠️'); return; }
+function savePsvAtivacao(fromBlur){
+  fromBlur = (fromBlur === true);
+  if(_psvIsReadOnly()){
+    if(!fromBlur) toast('⚠️ Modo visualização — limpe o filtro de HUB para editar o seu próprio plano.','⚠️');
+    return;
+  }
   const el  = document.getElementById('psv-atv-input');
   if(!el) return;
   const val = el.value.trim();
   if(!DB.ativacaoManual) DB.ativacaoManual = {};
   const uid = String(currentUser?.id || 'default');
-  if(typeof DB.ativacaoManual[currentYM] !== 'object' || DB.ativacaoManual[currentYM] === null){
-    DB.ativacaoManual[currentYM] = {};
-  }
-  if(val === '' || val === null){
-    delete DB.ativacaoManual[currentYM][uid];
-    if(Object.keys(DB.ativacaoManual[currentYM]).length === 0) delete DB.ativacaoManual[currentYM];
-  } else {
+  const ym  = currentYM;
+  const curObj = DB.ativacaoManual[ym];
+  const stored = (curObj != null && typeof curObj === 'object') ? (curObj[uid] ?? null) : null;
+  let newVal = null;
+  if(val !== ''){
     const n = parseInt(val);
-    if(isNaN(n) || n < 0){ toast('Valor inválido','⚠️'); return; }
-    DB.ativacaoManual[currentYM][uid] = n;
+    if(isNaN(n) || n < 0){ if(!fromBlur) toast('Valor inválido','⚠️'); return; }
+    newVal = n;
   }
+  // Ao sair do campo: só grava se o valor realmente mudou
+  if(fromBlur && stored === newVal) return;
+  if(typeof DB.ativacaoManual[ym] !== 'object' || DB.ativacaoManual[ym] === null){
+    DB.ativacaoManual[ym] = {};
+  }
+  if(newVal === null){
+    delete DB.ativacaoManual[ym][uid];
+    if(Object.keys(DB.ativacaoManual[ym]).length === 0) delete DB.ativacaoManual[ym];
+  } else {
+    DB.ativacaoManual[ym][uid] = newVal;
+  }
+  _psvPendSet('atv', ym+'|'+uid, {ym:ym, uid:uid, val:newVal});
   saveDB();
-  renderPSV();
+  // Ao sair do campo não reconstrói o card (evita perder foco/Tab); o preview já atualizou a barra
+  if(!fromBlur) renderPSV();
   renderDash();
   toast('Ativação salva ✓');
 }
@@ -7684,7 +7699,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwP0cC9XYGjpiP_oCrO4_I62QMcOkdXEeUa4Cg-c1j0YGE2WSZkSC5P4MyfET-jrIF82w/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxqCqdkEDQLANVxYni59UR3mZaW5ur7Zc38p1JyKUMYHHuMonjLvwlQlV-5fu6DQiZf5w/exec';
 
 function getCfg(){
   try{
@@ -7707,7 +7722,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwP0cC9XYGjpiP_oCrO4_I62QMcOkdXEeUa4Cg-c1j0YGE2WSZkSC5P4MyfET-jrIF82w/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxqCqdkEDQLANVxYni59UR3mZaW5ur7Zc38p1JyKUMYHHuMonjLvwlQlV-5fu6DQiZf5w/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7716,7 +7731,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbwP0cC9XYGjpiP_oCrO4_I62QMcOkdXEeUa4Cg-c1j0YGE2WSZkSC5P4MyfET-jrIF82w/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxqCqdkEDQLANVxYni59UR3mZaW5ur7Zc38p1JyKUMYHHuMonjLvwlQlV-5fu6DQiZf5w/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -8644,6 +8659,10 @@ async function _runSync() {
       // de tabelas alteradas. Próximo sync só enviará tabelas que mudaram.
       _v4CaptureSnapshot();
       _v4DirtyTables.clear();
+      // [FIX-PSV-PERSIST] limpa pendências já cobertas por este sync e reaplica
+      // as feitas durante ele (DB = toSend acima as teria descartado)
+      _psvPendClear(_v9SyncStartedAt);
+      _psvReapplyPending();
 
       // [V9-ETAPA2] Só agora — com o servidor tendo confirmado o recebimento
       // (postOk / serverReply.success, tratado acima) — é seguro remover da
@@ -9498,6 +9517,9 @@ function tablesToDB(tables) {
                    : null,
     nome_manual: String(r.nome_manual  || ''),
     valor      : (r.valor != null && r.valor !== '') ? String(r.valor) : null,
+    pct        : (r.pct != null && r.pct !== '') ? String(r.pct) : null,
+    cls        : r.cls ? String(r.cls) : null,
+    qtd        : (r.qtd != null && r.qtd !== '') ? String(r.qtd) : null,
     photo      : r.photo ? String(r.photo) : '',
   })).filter(r => r.ymKey); // CORREÇÃO P1: remove apenas linhas sem ymKey (inválidas); hubId vazio é permitido
   {
@@ -9795,6 +9817,7 @@ async function cloudPull(mergeLocal = true){
 
       DB = rec;
     }
+    _psvReapplyPending(); // [FIX-PSV-PERSIST] edições PSV ainda não enviadas não podem ser revertidas pelo pull
     try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
     setCloudUI('ok','Nuvem ✓');
     syncLog('Sincronizado — ' + new Date().toLocaleTimeString('pt-BR'));
@@ -10459,6 +10482,7 @@ function applySession(){
   // (garante que os campos estejam disponíveis mesmo antes do pull terminar)
   _psvRestaurarAgendaLocal();
   _psvRestaurarCnpjLocal();
+  _psvReapplyPending();
   const u=currentUser;
   const isSuperUser = u.superAdmin===true || u.username==='aldenir';
   const colorMap={gerente:'#7c3aed',regional:'#2563eb',supervisor:'#059669'};
@@ -11688,54 +11712,94 @@ function _applyTpvColor(el, rawVal) {
   el.style.color = _tpvTextColor(v);
 }
 
+// Máscara do campo "% Safra": só dígitos e uma vírgula (até 2 casas), limite 100, sufixo " %"
+function _dpPctMask(el){
+  var v = String(el.value||'').replace(/[^\d,\.]/g,'').replace(/\./g,',');
+  var i = v.indexOf(',');
+  if(i>=0) v = v.slice(0,i+1) + v.slice(i+1).replace(/,/g,'').slice(0,2);
+  var n = parseFloat(v.replace(',','.'));
+  if(!isNaN(n) && n>100) v = '100';
+  el.value = v ? v + ' %' : '';
+  try{ var p = el.value.length-2; el.setSelectionRange(p,p); }catch(e){}
+}
+function _dpPctFmt(raw){
+  if(raw==null || raw==='') return '';
+  var v = String(raw).replace(/[^\d,\.]/g,'').replace('.',',');
+  return v ? v + ' %' : '';
+}
+// Vendedores ATIVOS do HUB atual (todos, para preenchimento direto)
+function _dpHubSellers(){
+  const hub = _getHubIdForPsv();
+  let list = (DB.sellers||[]).filter(s=>!s.inativo && String(s.timeId)===String(hub));
+  if(!list.length) list = getScopedSellers().filter(s=>!s.inativo);
+  return list.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'pt-BR'));
+}
+const _DP_COLS = [
+  {mk:'M0', mc:'#2563eb'},
+  {mk:'M1', mc:'#7c3aed'},
+  {mk:'M2', mc:'#d97706'},
+];
+function _dpAvatar(s, size){
+  const c = s.color||'#7c3aed';
+  if(s.photo) return `<img src="${s.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  return `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:${c}33;font-size:${size}px;font-weight:800;color:${c};font-family:var(--font)">${String(s.name||'?')[0].toUpperCase()}</div>`;
+}
+// 👍/👎 — alterna a classificação do vendedor naquela safra (clicar de novo limpa)
+function dpSetCls(mk, sid, cls){
+  const row = document.getElementById(`dp-row-${mk}-${sid}`); if(!row || row.dataset.locked==='1') return;
+  const cur = row.dataset.cls||'';
+  const nv  = cur===cls ? '' : cls;
+  row.dataset.cls = nv;
+  _dpPaintRow(mk, sid);
+}
+function _dpPaintRow(mk, sid){
+  const row = document.getElementById(`dp-row-${mk}-${sid}`); if(!row) return;
+  const cls = row.dataset.cls||'';
+  const col = cls==='prom'?'#059669':cls==='det'?'#dc2626':'var(--td)';
+  [['prom','#059669'],['det','#dc2626']].forEach(([k,c])=>{
+    const b = document.getElementById(`dp-btn-${k}-${mk}-${sid}`); if(!b) return;
+    const on = cls===k;
+    b.style.background = on ? c+'22' : 'var(--bg)';
+    b.style.borderColor = on ? c : 'var(--border)';
+    b.style.opacity = on ? '1' : '.55';
+  });
+  const av = document.getElementById(`dp-av-${mk}-${sid}`);
+  if(av) av.style.border = cls ? `2px solid ${col}` : '2px solid var(--border)';
+  ['val','pct','qtd'].forEach(f=>{ const i=document.getElementById(`dp-${f}-${mk}-${sid}`); if(i) i.style.color = col; });
+}
 function _renderDPGrid(){
   const grid = document.getElementById('psv-dp-grid'); if(!grid) return;
-  const cols = [
-    {mk:'M0', mc:'#2563eb', border:'rgba(37,99,235,.2)'},
-    {mk:'M1', mc:'#7c3aed', border:'rgba(124,58,237,.2)'},
-    {mk:'M2', mc:'#d97706', border:'rgba(217,119,6,.2)'},
-  ];
+  const sellers = _dpHubSellers();
+  const inpStyle = `width:100%;border:1.5px solid var(--border);border-radius:6px;padding:5px 9px;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--td);background:var(--bg);outline:none;box-sizing:border-box`;
+  const btnStyle = `border:1.5px solid var(--border);background:var(--bg);border-radius:6px;font-size:13px;line-height:1;padding:4px 7px;cursor:pointer;opacity:.55`;
 
-  // Vendedores disponíveis no escopo atual
-  const scopedSellers = getScopedSellers(true).filter(s=>!s.inativo).sort((a,b)=>a.name.localeCompare(b.name));
-  const sellerOpts = scopedSellers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
-  const selStyle = `width:100%;border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;font-family:var(--font);font-size:11px;color:var(--tl);background:var(--bg);outline:none;cursor:pointer;margin-bottom:6px;box-sizing:border-box`;
-
-  function photoSlot(type, mk, color){
-    const ico = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
-    return `<div id="dp-photo-${type}-${mk}" onclick="dpUploadPhoto('${type}','${mk}')" title="Clique para trocar a foto"
-      style="width:46px;height:46px;border-radius:50%;flex-shrink:0;cursor:pointer;border:2px dashed ${color};display:flex;align-items:center;justify-content:center;overflow:hidden;background:${color}11">${ico}</div>
-      <input type="file" id="dp-file-${type}-${mk}" accept="image/*" style="display:none" onchange="dpSetPhoto(event,'${type}','${mk}')">`;
-  }
-
-  function slot(type, mk, label, color){
+  function sellerRow(s, mk){
     return `
-      <div style="margin-bottom:14px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${color};margin-bottom:8px">${label}</div>
-        <div style="display:flex;align-items:center;gap:10px">
-          ${photoSlot(type, mk, color)}
-          <div style="flex:1;min-width:0">
-            <select id="dp-sel-${type}-${mk}" onchange="dpSelectSeller('${type}','${mk}',this.value)" style="${selStyle}">
-              <option value="">🔍 Puxar do cadastro…</option>
-              ${sellerOpts}
-            </select>
-            <input type="text" id="dp-name-${type}-${mk}" placeholder="Ou digitar nome manualmente"
-              style="width:100%;border:1.5px solid var(--border);border-radius:6px;padding:5px 9px;font-family:var(--font);font-size:12px;color:var(--td);background:var(--bg);outline:none;margin-bottom:5px;box-sizing:border-box">
-            <input type="text" inputmode="numeric" id="dp-val-${type}-${mk}" placeholder="R$ 0,00"
-              oninput="(function(el){var r=el.value.replace(/\D/g,'');el.value=r?_maskBRL(r):''})(this)"
-              style="width:100%;border:1.5px solid var(--border);border-radius:6px;padding:5px 9px;font-family:var(--mono);font-size:12px;font-weight:700;color:${color};background:var(--bg);outline:none;box-sizing:border-box">
-          </div>
+      <div id="dp-row-${mk}-${s.id}" data-cls="" style="padding:9px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">
+          <div id="dp-av-${mk}-${s.id}" style="width:34px;height:34px;border-radius:50%;flex-shrink:0;border:2px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center">${_dpAvatar(s,14)}</div>
+          <div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${s.name}">${s.name}</div>
+          <button type="button" id="dp-btn-prom-${mk}-${s.id}" onclick="dpSetCls('${mk}',${s.id},'prom')" title="Promotor" style="${btnStyle}">👍</button>
+          <button type="button" id="dp-btn-det-${mk}-${s.id}"  onclick="dpSetCls('${mk}',${s.id},'det')"  title="Detrator" style="${btnStyle}">👎</button>
+        </div>
+        <div style="display:flex;gap:6px">
+          <input type="text" inputmode="numeric" id="dp-val-${mk}-${s.id}" placeholder="R$ 0,00"
+            oninput="(function(el){var r=el.value.replace(/\\D/g,'');el.value=r?_maskBRL(r):''})(this)" style="${inpStyle};flex:1.3;min-width:0">
+          <input type="text" inputmode="decimal" id="dp-pct-${mk}-${s.id}" placeholder="% Safra"
+            oninput="_dpPctMask(this)" style="${inpStyle};flex:1;min-width:0">
+          <input type="text" inputmode="numeric" id="dp-qtd-${mk}-${s.id}" placeholder="Qtd vendas" title="Quantidade de vendas"
+            oninput="this.value=this.value.replace(/\D/g,'').slice(0,5)" style="${inpStyle};flex:1;min-width:0">
         </div>
       </div>`;
   }
 
-  grid.innerHTML = cols.map((c,i)=>`
+  grid.innerHTML = _DP_COLS.map((c,i)=>`
     <div style="padding:16px 14px;${i<2?'border-right:1px solid var(--border)':''}">
-      <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:${c.mc};margin-bottom:14px;display:flex;align-items:center;gap:6px">
+      <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:${c.mc};margin-bottom:8px;display:flex;align-items:center;gap:6px">
         <div style="width:8px;height:8px;border-radius:50%;background:${c.mc}"></div>${c.mk}
+        <span style="font-size:10px;font-weight:600;color:var(--tl);letter-spacing:0;text-transform:none">· ${sellers.length} vendedor${sellers.length===1?'':'es'}</span>
       </div>
-      ${slot('prom', c.mk, '👍 Promotor', '#059669')}
-      ${slot('det',  c.mk, '👎 Detrator', '#dc2626')}
+      ${sellers.length ? sellers.map(s=>sellerRow(s,c.mk)).join('') : '<div style="font-size:11px;color:var(--tl);padding:12px 0">Nenhum vendedor ativo neste HUB.</div>'}
     </div>`).join('');
 }
 
@@ -11880,24 +11944,29 @@ function dpSetPhoto(e, type, mk){
 function saveDpAll(){
   if(_psvIsReadOnly()){ toast('⚠️ Modo visualização — limpe o filtro de HUB para editar o plano do supervisor.','⚠️'); return; }
   const ymKey  = String(currentYM);
-  const hubId  = _getHubIdForPsv();  // já retorna string
-  // Escrita: sempre usa o userId do usuário logado (isolamento de dados)
+  const hubId  = _getHubIdForPsv();
   const uid    = String(currentUser?.id || 'default');
   if(!DB.psvDp) DB.psvDp = [];
-  // Remove linhas antigas deste userId+ymKey+hubId
   DB.psvDp = DB.psvDp.filter(r => !(String(r.userId||'default')===uid && String(r.ymKey)===ymKey && String(r.hubId)===hubId));
+  const sellers = _dpHubSellers();
   ['M0','M1','M2'].forEach(mk=>{
-    ['prom','det'].forEach(tipo=>{
-      const nome_manual = document.getElementById(`dp-name-${tipo}-${mk}`)?.value||'';
-      const valor       = document.getElementById(`dp-val-${tipo}-${mk}`)?.value||'';
-      const vendedorId  = document.getElementById(`dp-sel-${tipo}-${mk}`)?.value||'';
-      const photoKey    = `${uid}_${tipo}_${mk}`;
-      const photo       = _dpPhotos[photoKey]||'';
+    sellers.forEach(s=>{
+      const cls   = document.getElementById(`dp-row-${mk}-${s.id}`)?.dataset.cls||'';
+      const valor = document.getElementById(`dp-val-${mk}-${s.id}`)?.value||'';
+      const pct   = (document.getElementById(`dp-pct-${mk}-${s.id}`)?.value||'').replace(/[^\d,\.]/g,'');
+      const qtd   = (document.getElementById(`dp-qtd-${mk}-${s.id}`)?.value||'').replace(/\D/g,'');
+      if(!cls && !valor && !pct && !qtd) return; // só grava o que foi preenchido
       DB.psvDp.push({
-        userId: uid, ymKey, hubId, tipo, safra: mk,
-        vendedorId: vendedorId||null,
-        nome_manual, valor: valor||null,
-        photo
+        userId: uid, ymKey, hubId,
+        tipo: 'v'+s.id,            // 1 linha por vendedor (chave única userId|ymKey|hubId|tipo|safra)
+        safra: mk,
+        vendedorId: s.id,
+        nome_manual: s.name,
+        cls: cls||null,
+        valor: valor||null,
+        pct: pct||null,
+        qtd: qtd||null,
+        photo: ''
       });
     });
   });
@@ -11956,61 +12025,30 @@ function dpSelectSeller(type, mk, val){
 
 function _restoreDpFields(){
   const ymKey = String(currentYM);
-  const hubId = _getHubIdForPsv();  // já retorna string
-  // Leitura: usa o userId do supervisor dono do HUB (visão hierárquica)
+  const hubId = _getHubIdForPsv();
   const uid   = _getPsvOwnerUserId();
-  // Lê da nova tabela filtrando por userId+ymKey+hubId; fallback para psvData legado
-  const newRows = (DB.psvDp||[]).filter(r => String(r.userId||'default')===uid && String(r.ymKey)===ymKey && String(r.hubId)===hubId);
-  const dpDb_legacy = (DB.psvData?.dp||{})[ymKey]||{};
-
+  const rows  = (DB.psvDp||[]).filter(r => String(r.userId||'default')===uid && String(r.ymKey)===ymKey && (String(r.hubId)===hubId || r.hubId===''||r.hubId==null));
+  const sellers = _dpHubSellers();
   ['M0','M1','M2'].forEach(mk=>{
-    ['prom','det'].forEach(tipo=>{
-      const k       = `${tipo}_${mk}`;
-      const photoKey= `${uid}_${tipo}_${mk}`;
-      // Tenta nova tabela primeiro
-      const row = newRows.find(r=>r.tipo===tipo && r.safra===mk);
-      const d   = row
-        ? { name: row.nome_manual, val: row.valor, sellerId: row.vendedorId, photo: row.photo }
-        : (dpDb_legacy[k]||{});
-
-      const ni   = document.getElementById(`dp-name-${tipo}-${mk}`);
-      const vi   = document.getElementById(`dp-val-${tipo}-${mk}`);
-      const sel  = document.getElementById(`dp-sel-${tipo}-${mk}`);
-      const slot = document.getElementById(`dp-photo-${tipo}-${mk}`);
-      const color= tipo==='prom'?'#059669':'#dc2626';
-
-      if(ni) ni.value = d.name||'';
-      // Regra 3 (integridade histórica): se há vendedorId, busca o nome ATUAL no cadastro pelo ID.
-      // Isso garante que renomear um vendedor não quebre os dados históricos do PSV —
-      // o ID é imutável; o nome exibido acompanha o cadastro atual.
-      if(d.sellerId){
-        const _sid = typeof d.sellerId==='number' ? d.sellerId : parseInt(d.sellerId);
-        const _s   = isNaN(_sid) ? null : DB.sellers.find(x=>x.id===_sid);
-        if(_s && ni) ni.value = _s.name; // sobrescreve com nome atual do cadastro
-        // Se seller não existe mais no cadastro, mantém nome_manual como fallback histórico
+    sellers.forEach(s=>{
+      // formato novo: tipo 'v<id>'; legado: tipo prom/det com vendedorId = s.id
+      let r = rows.find(x=>x.safra===mk && x.tipo==='v'+s.id);
+      let cls = r ? (r.cls||'') : '';
+      if(!r){
+        const lg = rows.find(x=>x.safra===mk && (x.tipo==='prom'||x.tipo==='det') && String(x.vendedorId)===String(s.id));
+        if(lg){ r = lg; cls = lg.tipo; }
       }
-      if(vi){
-        // Normaliza o valor salvo para o formato de máscara R$ 0.000,00
-        var _rawDp = d.val ? String(d.val).replace(/\D/g,'') : '';
-        vi.value = _rawDp ? _maskBRL(_rawDp) : '';
-        if(vi.value) vi.style.color = color;
-      }
-      if(sel && d.sellerId) sel.value = d.sellerId;
-
-      const photo = d.photo || _dpPhotos[photoKey] || null;
-      if(photo && slot){
-        slot.innerHTML=`<img src="${photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
-        slot.style.border=`2px solid ${color}`;
-        _dpPhotos[photoKey]=photo; _saveDpPhotos();
-      } else if(d.name && !photo && slot){
-        // Vendedor salvo mas sem foto — mostra inicial
-        const sellerId = d.sellerId ? parseInt(d.sellerId) : null;
-        const s = sellerId ? DB.sellers.find(x=>x.id===sellerId) : null;
-        const sColor = s?.color||color;
-        const inicial = (d.name||'?')[0].toUpperCase();
-        slot.innerHTML=`<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:${sColor}33;font-size:18px;font-weight:800;color:${sColor};font-family:var(--font)">${inicial}</div>`;
-        slot.style.border=`2px solid ${color}`;
-      }
+      if(!r) return;
+      const row = document.getElementById(`dp-row-${mk}-${s.id}`); if(!row) return;
+      row.dataset.cls = cls;
+      const vi = document.getElementById(`dp-val-${mk}-${s.id}`);
+      const pi = document.getElementById(`dp-pct-${mk}-${s.id}`);
+      const raw = r.valor ? String(r.valor).replace(/\D/g,'') : '';
+      if(vi) vi.value = raw ? _maskBRL(raw) : '';
+      if(pi) pi.value = _dpPctFmt(r.pct);
+      const qi = document.getElementById(`dp-qtd-${mk}-${s.id}`);
+      if(qi) qi.value = r.qtd!=null && r.qtd!=='' ? String(r.qtd).replace(/\D/g,'') : '';
+      _dpPaintRow(mk, s.id);
     });
   });
 }
@@ -13113,8 +13151,19 @@ function _doRenderPSV(){
 
   const el = document.getElementById('psv-sub');
   if(el) el.textContent = `${MESES[m]} ${y} · ${sellers.length} HC`;
+  // [FIX-PSV-PERSIST] guarda o que o usuário está digitando num KPI editável
+  const _ae = document.activeElement;
+  const _keep = (_ae && /^psv-(cnpj|atv)-input$|^psv-safra-M[012]$/.test(_ae.id))
+    ? {id:_ae.id, value:_ae.value, s:_ae.selectionStart, e:_ae.selectionEnd} : null;
   _renderHCGrid(sellers);
   _renderPSVKpis(ymKey, y, m, sellers);
+  if(_keep){
+    const _n = document.getElementById(_keep.id);
+    if(_n){
+      if(_n.value !== _keep.value) _n.value = _keep.value;
+      try{ _n.focus(); _n.setSelectionRange(_keep.s, _keep.e); }catch(e){}
+    }
+  }
   _renderPSVCharts(ymKey,y,m,sellers);
   _renderPhotosRow(sellers);
   _renderPSVSellerChart(ymKey,sellers);
@@ -13171,18 +13220,14 @@ function _setPsvReadOnlyUI(readOnly){
     atvSaveBtn.style.opacity = readOnly ? '0.45' : '1';
   }
 
-  // --- Detrator / Promotor (todos os campos M0, M1, M2) ---
-  ['M0','M1','M2'].forEach(function(mk){
-    ['prom','det'].forEach(function(tipo){
-      ['dp-name-'+tipo+'-'+mk, 'dp-val-'+tipo+'-'+mk, 'dp-sel-'+tipo+'-'+mk].forEach(function(id){
-        const el = document.getElementById(id);
-        if(el){
-          el.disabled = readOnly;
-          el.style.opacity = readOnly ? '0.55' : '1';
-          el.style.cursor  = readOnly ? 'not-allowed' : '';
-        }
-      });
-    });
+  // --- Detrator / Promotor (todos os vendedores do HUB) ---
+  document.querySelectorAll('#psv-dp-grid input, #psv-dp-grid button').forEach(function(el){
+    el.disabled = readOnly;
+    el.style.cursor = readOnly ? 'not-allowed' : '';
+  });
+  document.querySelectorAll('#psv-dp-grid [id^="dp-row-"]').forEach(function(el){
+    el.dataset.locked = readOnly ? '1' : '';
+    el.style.opacity = readOnly ? '0.7' : '1';
   });
   const dpSave = document.getElementById('dp-save-btn');
   if(dpSave){
@@ -13350,6 +13395,19 @@ function _renderPSVKpis(ymKey, y, m, sellers){
   let safraM1 = tidsNoScope.reduce((a,tid)=>a+((DB.mValues||{})[ymKey]?.[tid]?.M1||0),0);
   let safraM2 = tidsNoScope.reduce((a,tid)=>a+((DB.mValues||{})[ymKey]?.[tid]?.M2||0),0);
 
+  // [FIX-SAFRA] HUB alvo para edição direta (mesma fonte da matriz: DB.mValues)
+  let safraTid = null;
+  if(psvTmId) safraTid = psvTmId;
+  else if(u?.role==='supervisor') safraTid = u.timeId || null;
+  else if(tidsNoScope.length===1) safraTid = tidsNoScope[0];
+  const safraCanEdit = !!safraTid && (u?.role==='supervisor'
+      ? String(u.timeId)===String(safraTid)
+      : (u?.role==='regional' || isGerente(u)));
+  if(safraTid){
+    const _sv = (DB.mValues||{})[ymKey]?.[safraTid] || {};
+    safraM0 = _sv.M0||0; safraM1 = _sv.M1||0; safraM2 = _sv.M2||0;
+  }
+
   const safraCols = [
     {k:'M0', v:safraM0, c:'#2563eb', bg:'rgba(37,99,235,.07)', border:'rgba(37,99,235,.2)'},
     {k:'M1', v:safraM1, c:'#7c3aed', bg:'rgba(124,58,237,.07)', border:'rgba(124,58,237,.2)'},
@@ -13473,7 +13531,7 @@ function _renderPSVKpis(ymKey, y, m, sellers){
           placeholder="0"
           value="${_cnpjNum !== null ? _cnpjNum : ''}"
           style="width:72px;background:rgba(8,145,178,.08);border:2px solid rgba(8,145,178,.3);border-radius:8px;padding:4px 8px;font-family:var(--mono);font-size:20px;font-weight:800;color:#0891b2;outline:none;text-align:center;-moz-appearance:textfield;"
-          oninput="previewPsvCnpj()"
+          oninput="previewPsvCnpj()" onblur="psvSalvarCnpj(true)"
           onkeydown="if(event.key==='Enter'){psvSalvarCnpj();this.blur();event.preventDefault()}">
         <button onclick="psvSalvarCnpj()" class="atv-save-btn" style="background:#0891b2">✓</button>
       </div>
@@ -13510,7 +13568,7 @@ function _renderPSVKpis(ymKey, y, m, sellers){
       <input type="number" id="psv-atv-input" min="0" placeholder="${_atvAuto2||0}"
         value="${atvManual2 !== null ? atvManual2 : ''}"
         style="width:72px;background:rgba(13,148,136,.08);border:2px solid rgba(13,148,136,.3);border-radius:8px;padding:4px 8px;font-family:var(--mono);font-size:20px;font-weight:800;color:var(--teal);outline:none;text-align:center;-moz-appearance:textfield;"
-        oninput="previewPsvAtivacao()" onkeydown="if(event.key==='Enter'){savePsvAtivacao();this.blur();event.preventDefault()}">
+        oninput="previewPsvAtivacao()" onblur="savePsvAtivacao(true)" onkeydown="if(event.key==='Enter'){savePsvAtivacao();this.blur();event.preventDefault()}">
       <button onclick="savePsvAtivacao()" class="atv-save-btn">✓</button>
     </div>
     <div class="atv-pct-row" style="margin-top:0">
@@ -13544,12 +13602,18 @@ function _renderPSVKpis(ymKey, y, m, sellers){
           <!-- badge safra -->
           <div style="font-size:9px;font-weight:800;letter-spacing:.7px;color:${s.c};background:${s.border};border-radius:99px;padding:1px 7px;margin-bottom:5px">${s.k}</div>
           <!-- número principal -->
-          <div style="font-size:30px;font-weight:900;font-family:var(--mono);color:${s.c};line-height:1">${s.v||0}</div>
+          ${safraCanEdit ? `<input type="text" inputmode="numeric" id="psv-safra-${s.k}" value="${s.v||''}" placeholder="0" title="Clique para editar"
+              style="width:100%;min-width:0;box-sizing:border-box;text-align:center;font-size:30px;font-weight:900;font-family:var(--mono);color:${s.c};line-height:1;background:transparent;border:none;border-bottom:1.5px dashed ${s.border};border-radius:0;padding:0;outline:none;"
+              onfocus="this.select();this.style.borderBottomColor='${s.c}'"
+              oninput="this.value=this.value.replace(/\\D/g,'');_psvSafraRefreshBars()"
+              onblur="this.style.borderBottomColor='${s.border}';psvSalvarSafra(this,'${safraTid}','${s.k}','${ymKey}')"
+              onkeydown="if(event.key==='Enter'){this.blur();event.preventDefault()}">`
+            : `<div style="font-size:30px;font-weight:900;font-family:var(--mono);color:${s.c};line-height:1" ${safraTid?'':'title="Selecione um HUB para editar"'}>${s.v||0}</div>`}
           <!-- mini barra de participação -->
           <div style="width:100%;margin-top:6px;height:3px;background:rgba(0,0,0,.08);border-radius:99px;overflow:hidden">
-            <div style="height:100%;width:${pctBar}%;background:${s.c};border-radius:99px;opacity:.7"></div>
+            <div id="psv-safra-bar-${s.k}" style="height:100%;width:${pctBar}%;background:${s.c};border-radius:99px;opacity:.7"></div>
           </div>
-          <div style="font-size:8px;color:${s.c};font-weight:700;margin-top:3px;opacity:.8">${pctBar}%</div>
+          <div id="psv-safra-pct-${s.k}" style="font-size:8px;color:${s.c};font-weight:700;margin-top:3px;opacity:.8">${pctBar}%</div>
         </div>`;
       }).join('')}
     </div>
@@ -14290,6 +14354,97 @@ function psvLimparAgenda() {
 //  Valor armazenado: número float (ex: 87.5)
 // ════════════════════════════════════════════════════════════════
 
+
+// ════════════════════════════════════════════════════════════════
+//  [FIX-PSV-PERSIST] Pendências PSV (CNPJ %, Ativação, Safra M0/M1/M2)
+//  Guarda cada edição até um sync CONFIRMADO e a reaplica se o DB for
+//  substituído (pull da nuvem / fim de sync) antes de ela chegar ao servidor.
+// ════════════════════════════════════════════════════════════════
+var _PSV_PEND_KEY = 'bi_psv_pending_v1';
+function _psvPendLoad(){ try{ return JSON.parse(localStorage.getItem(_PSV_PEND_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function _psvPendSave(p){ try{ localStorage.setItem(_PSV_PEND_KEY, JSON.stringify(p)); }catch(e){} }
+function _psvPendSet(kind, key, data){
+  var p = _psvPendLoad(); if(!p[kind]) p[kind] = {};
+  p[kind][key] = Object.assign({ts: Date.now()}, data);
+  _psvPendSave(p);
+}
+// Remove pendências já cobertas por um sync que começou DEPOIS delas
+function _psvPendClear(syncStartedAt){
+  var p = _psvPendLoad(), ch = false;
+  ['cnpj','atv','safra'].forEach(function(k){
+    Object.keys(p[k]||{}).forEach(function(key){
+      if((p[k][key].ts||0) < syncStartedAt){ delete p[k][key]; ch = true; }
+    });
+  });
+  if(ch) _psvPendSave(p);
+}
+function _psvReapplyPending(){
+  try{
+    var p = _psvPendLoad(), changed = false;
+    Object.keys(p.cnpj||{}).forEach(function(uid){
+      var e = p.cnpj[uid], val = e.val == null ? '' : String(e.val);
+      var du = (DB.users||[]).find(function(x){ return String(x.id) === String(uid); });
+      if(du && String(du.cnpj == null ? '' : du.cnpj) !== val){ du.cnpj = val; du._ts = Date.now(); changed = true; }
+      if(currentUser && String(currentUser.id) === String(uid) && String(currentUser.cnpj == null ? '' : currentUser.cnpj) !== val){ currentUser.cnpj = val; changed = true; }
+    });
+    Object.keys(p.atv||{}).forEach(function(k){
+      var e = p.atv[k];
+      if(!DB.ativacaoManual) DB.ativacaoManual = {};
+      var cur = DB.ativacaoManual[e.ym];
+      if(cur == null || typeof cur !== 'object') cur = DB.ativacaoManual[e.ym] = {};
+      if(e.val == null){
+        if(cur[e.uid] !== undefined){ delete cur[e.uid]; changed = true; }
+      } else if(cur[e.uid] !== e.val){ cur[e.uid] = e.val; changed = true; }
+    });
+    Object.keys(p.safra||{}).forEach(function(k){
+      var e = p.safra[k];
+      if(!DB.mValues) DB.mValues = {};
+      if(!DB.mValues[e.ym]) DB.mValues[e.ym] = {};
+      if(!DB.mValues[e.ym][e.tid]) DB.mValues[e.ym][e.tid] = {};
+      var o = DB.mValues[e.ym][e.tid];
+      if(e.val == null){ if(o[e.mk] !== undefined){ delete o[e.mk]; changed = true; } }
+      else if(o[e.mk] !== e.val){ o[e.mk] = e.val; changed = true; }
+    });
+    if(changed){
+      try{ localStorage.setItem('bi_v5', JSON.stringify(DB)); }catch(e){}
+      clearTimeout(saveDB._t); saveDB._t = setTimeout(_syncEnqueue, 800);
+    }
+    return changed;
+  }catch(e){ console.warn('[psv-pending]', e); return false; }
+}
+
+// ── SAFRA M0/M1/M2 editável direto no KPI (grava no mesmo DB.mValues da matriz) ──
+function _psvSafraRefreshBars(){
+  var ks = ['M0','M1','M2'], vals = {}, tot = 0;
+  ks.forEach(function(k){
+    var el = document.getElementById('psv-safra-'+k);
+    vals[k] = el ? (parseInt(String(el.value).replace(/\D/g,''),10)||0) : 0; tot += vals[k];
+  });
+  ks.forEach(function(k){
+    var pc = tot > 0 ? Math.round(vals[k]/tot*100) : 0;
+    var b = document.getElementById('psv-safra-bar-'+k), t = document.getElementById('psv-safra-pct-'+k);
+    if(b) b.style.width = pc+'%';
+    if(t) t.textContent = pc+'%';
+  });
+}
+function psvSalvarSafra(input, tid, mk, ymKey){
+  if(!input) return;
+  var raw = String(input.value).replace(/\D/g,'');
+  var n = raw === '' ? null : parseInt(raw,10);
+  input.value = n == null ? '' : String(n);
+  var cur = ((DB.mValues||{})[ymKey]||{})[tid];
+  var old = cur && cur[mk] != null ? cur[mk] : null;
+  _psvSafraRefreshBars();
+  if(old === n) return;
+  if(!DB.mValues) DB.mValues = {};
+  if(!DB.mValues[ymKey]) DB.mValues[ymKey] = {};
+  if(!DB.mValues[ymKey][tid]) DB.mValues[ymKey][tid] = {};
+  if(n == null) delete DB.mValues[ymKey][tid][mk]; else DB.mValues[ymKey][tid][mk] = n;
+  _psvPendSet('safra', ymKey+'|'+tid+'|'+mk, {ym:ymKey, tid:tid, mk:mk, val:n});
+  saveDB();
+  toast('Safra '+mk+' salva: '+(n==null?'—':n), '🌾');
+}
+
 // Prévia em tempo real da barra + % enquanto o usuário digita (igual ao previewPsvAtivacao)
 function previewPsvCnpj() {
   var inp  = document.getElementById('psv-cnpj-input');
@@ -14317,28 +14472,27 @@ function previewPsvCnpj() {
 }
 
 // Salva o valor % em DB.users + currentUser + sessionStorage + localStorage
-function psvSalvarCnpj() {
+// fromBlur=true: chamada ao sair do campo — só grava se mudou, sem toast redundante
+function psvSalvarCnpj(fromBlur) {
   var inp = document.getElementById('psv-cnpj-input');
   if (!inp) return;
   var raw = inp.value.trim();
   var num = raw !== '' ? parseFloat(raw) : null;
+  if (num !== null && isNaN(num)) num = null;
   // Clamp 0–100
   if (num !== null) num = Math.min(100, Math.max(0, num));
   var val = num !== null ? String(num) : '';
   var u   = currentUser;
   if (!u) return;
 
-  // 1. DB.users
   var dbUser = (DB.users || []).find(function(x) { return String(x.id) === String(u.id); });
-  if (dbUser) {
-    dbUser.cnpj = val;
-    // [FIX] O merge de users é "nuvem vence em empate" (mergeArrCloudWins),
-    // exigindo _ts estritamente mais recente para o local prevalecer. Sem
-    // bumpar _ts aqui, o próximo sync podia reverter o CNPJ para o valor
-    // antigo da nuvem — exatamente o mesmo problema já corrigido para a
-    // inativação de vendedor.
-    dbUser._ts = Date.now();
+  if (fromBlur === true) {
+    var stored = dbUser ? dbUser.cnpj : u.cnpj;
+    if (String(stored == null ? '' : stored) === val) return; // nada mudou
   }
+
+  // 1. DB.users (_ts novo: o merge de users exige _ts mais recente para o local prevalecer)
+  if (dbUser) { dbUser.cnpj = val; dbUser._ts = Date.now(); }
 
   // 2. currentUser em memória
   currentUser.cnpj = val;
@@ -14353,9 +14507,12 @@ function psvSalvarCnpj() {
     else     localStorage.removeItem(lsKey);
   } catch(e) {}
 
+  // 5. Pendência: sobrevive a pull/sync que substituam o DB antes do envio
+  _psvPendSet('cnpj', String(u.id), {val: val});
+
   saveDB();
   previewPsvCnpj();
-  if (val) toast('CNPJ % salvo: ' + num.toFixed(1) + '%', '🏢');
+  if (num !== null) toast('CNPJ % salvo: ' + num.toFixed(1) + '%', '🏢');
 }
 
 // Restaura CNPJ % do localStorage se DB.users ainda não tem (chamado na inicialização)
@@ -14756,13 +14913,28 @@ function _psvPDp() {
   var hubId = _getHubIdForPsv();
   var uid   = _getPsvOwnerUserId();
 
-  // Filtra as linhas do usuário/mês/hub atual
   var rows = (DB.psvDp || []).filter(function(r) {
     return String(r.userId || 'default') === uid &&
            String(r.ymKey)               === ymKey &&
-           // Aceita hubId exato OU hubId vazio (registros salvos antes de timeId configurado)
            (String(r.hubId) === hubId || r.hubId === '' || r.hubId == null);
   });
+
+  // Normaliza: formato novo (tipo 'v<id>' + cls) e legado (tipo prom/det)
+  var items = rows.map(function(r) {
+    var cls = (r.tipo === 'prom' || r.tipo === 'det') ? r.tipo : (r.cls || '');
+    var nome = r.nome_manual || '';
+    var sid = r.vendedorId != null && r.vendedorId !== '' ? parseInt(r.vendedorId) : NaN;
+    var s = isNaN(sid) ? null : (DB.sellers || []).find(function(x){ return x.id === sid; });
+    if (s) nome = s.name;
+    var valorFmt = '';
+    if (r.valor) { var d = String(r.valor).replace(/\D/g, ''); valorFmt = d ? _maskBRL(d) : String(r.valor); }
+    return { safra: r.safra, cls: cls, nome: nome, s: s, valor: valorFmt, pct: _dpPctFmt(r.pct), qtd: (r.qtd != null && r.qtd !== '') ? String(r.qtd) : '' };
+  }).filter(function(it){ return it.nome && (it.cls || it.valor || it.pct || it.qtd); });
+
+  if (!items.length) {
+    dest.innerHTML = '<div style="padding:32px;color:var(--tl);text-align:center;grid-column:1/-1">Sem dados de Detrator &amp; Promotor para este mês.</div>';
+    return;
+  }
 
   var cols = [
     { mk: 'M0', mc: '#2563eb' },
@@ -14770,82 +14942,40 @@ function _psvPDp() {
     { mk: 'M2', mc: '#d97706' }
   ];
 
-  // Verifica se há algum dado real para exibir
-  var temDados = rows.some(function(r) {
-    return (r.nome_manual && r.nome_manual.trim()) || r.vendedorId || r.photo;
-  });
-
-  if (!temDados) {
-    dest.innerHTML = '<div style="padding:32px;color:var(--tl);text-align:center;grid-column:1/-1">Sem dados de Detrator &amp; Promotor para este mês.</div>';
-    return;
-  }
-
-  // ── Helper: monta o bloco visual de um slot (promotor ou detrator) ──
-  function buildSlot(tipo, mk, label, color) {
-    var row = rows.find(function(r) { return r.tipo === tipo && r.safra === mk; });
-    if (!row) row = {};
-
-    // Resolve nome: vendedorId tem prioridade (nome atual do cadastro), depois nome_manual
-    var nome = '';
-    if (row.vendedorId) {
-      var sid = typeof row.vendedorId === 'number' ? row.vendedorId : parseInt(row.vendedorId);
-      var s   = isNaN(sid) ? null : (DB.sellers || []).find(function(x){ return x.id === sid; });
-      nome = s ? s.name : (row.nome_manual || '');
-    } else {
-      nome = row.nome_manual || '';
-    }
-
-    // Formata valor para R$ 0.000,00
-    // Usa _maskBRL (centavos inteiros) como caminho principal — garante
-    // comportamento idêntico ao input mascarado da tela de edição.
-    var valorRaw = row.valor ? String(row.valor).trim() : '';
-    var valorFmt = '';
-    if (valorRaw) {
-      var _dpDigits = valorRaw.replace(/\D/g, '');
-      valorFmt = _dpDigits ? _maskBRL(_dpDigits) : valorRaw;
-    }
-    var photo = row.photo || '';
-
-    // Avatar: foto base64 → img; nome → inicial colorida; vazio → ícone SVG
-    var avatarHtml;
-    if (photo) {
-      avatarHtml = '<img src="' + photo + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
-    } else if (nome) {
-      avatarHtml = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;'
-                 + 'background:' + color + '33;font-size:18px;font-weight:800;color:' + color + ';font-family:var(--font)">'
-                 + nome[0].toUpperCase() + '</div>';
-    } else {
-      avatarHtml = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2">'
-                 + '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>';
-    }
-
-    return '<div style="margin-bottom:14px">'
-         +   '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:' + color + ';margin-bottom:8px">' + label + '</div>'
-         +   '<div style="display:flex;align-items:center;gap:10px">'
-         +     '<div style="width:46px;height:46px;border-radius:50%;flex-shrink:0;border:2px solid ' + color + ';'
-         +          'display:flex;align-items:center;justify-content:center;overflow:hidden;background:' + color + '11">'
-         +       avatarHtml
-         +     '</div>'
-         +     '<div style="flex:1;min-width:0">'
-         +       '<div style="font-family:var(--font);font-size:13px;font-weight:700;color:var(--td);'
-         +            'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">'
-         +         (nome || '<span style="color:var(--tl);font-weight:400;font-style:italic">Não informado</span>')
-         +       '</div>'
-         +       (valorFmt
-         ?  '<div style="font-family:var(--mono);font-size:12px;font-weight:700;color:' + color + '">' + valorFmt + '</div>'
-         :  '<div style="font-size:11px;color:var(--tl)">—</div>')
-         +     '</div>'
+  function line(it) {
+    var color = it.cls === 'prom' ? '#059669' : it.cls === 'det' ? '#dc2626' : 'var(--td)';
+    var av = (it.s && it.s.photo)
+      ? '<img src="' + it.s.photo + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%">'
+      : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:' + color + '22;font-size:14px;font-weight:800;color:' + color + ';font-family:var(--font)">' + it.nome[0].toUpperCase() + '</div>';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0">'
+         +   '<div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;border:2px solid ' + color + ';overflow:hidden">' + av + '</div>'
+         +   '<div style="flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--td);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + it.nome + '</div>'
+         +   '<div style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:' + color + '">'
+         +     (it.pct ? '<div>' + it.pct + '</div>' : '')
+         +     (it.qtd ? '<div>' + it.qtd + ' venda' + (it.qtd === '1' ? '' : 's') + '</div>' : '')
+         +     (it.valor ? '<div>' + it.valor + '</div>' : '')
          +   '</div>'
          + '</div>';
   }
+  function group(list, label, color) {
+    if (!list.length) return '';
+    return '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:' + color + ';margin:8px 0 2px">' + label + '</div>'
+         + list.map(line).join('');
+  }
 
   dest.innerHTML = cols.map(function(c, i) {
+    var L = items.filter(function(it){ return it.safra === c.mk; });
+    var prom = L.filter(function(it){ return it.cls === 'prom'; });
+    var det  = L.filter(function(it){ return it.cls === 'det'; });
+    var out  = L.filter(function(it){ return !it.cls; });
     return '<div style="padding:16px 14px;' + (i < 2 ? 'border-right:1px solid var(--border)' : '') + '">'
-         +   '<div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:' + c.mc + ';margin-bottom:14px;display:flex;align-items:center;gap:6px">'
+         +   '<div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:' + c.mc + ';margin-bottom:6px;display:flex;align-items:center;gap:6px">'
          +     '<div style="width:8px;height:8px;border-radius:50%;background:' + c.mc + '"></div>' + c.mk
          +   '</div>'
-         +   buildSlot('prom', c.mk, '👍 Promotor', '#059669')
-         +   buildSlot('det',  c.mk, '👎 Detrator', '#dc2626')
+         +   group(prom, '👍 Promotores', '#059669')
+         +   group(det,  '👎 Detratores', '#dc2626')
+         +   group(out,  'Demais', 'var(--tl)')
+         +   (L.length ? '' : '<div style="font-size:11px;color:var(--tl);padding:8px 0">—</div>')
          + '</div>';
   }).join('');
 }
