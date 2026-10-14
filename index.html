@@ -7451,12 +7451,9 @@ function saveOvAtvManual(){
   if(typeof DB.ativacaoManualOv[currentYM] !== 'object' || DB.ativacaoManualOv[currentYM] === null){
     DB.ativacaoManualOv[currentYM] = {};
   }
-  if(n===null){
-    delete DB.ativacaoManualOv[currentYM][uid];
-    if(Object.keys(DB.ativacaoManualOv[currentYM]).length === 0) delete DB.ativacaoManualOv[currentYM];
-  } else {
-    DB.ativacaoManualOv[currentYM][uid] = n;
-  }
+  // [FIX-OV-DELETE] vazio grava -1 ("automático"); delete voltaria da nuvem no merge
+  DB.ativacaoManualOv[currentYM][uid] = (n===null || isNaN(n)) ? -1 : n;
+  DB._savedAt = Date.now();
   saveDB();
   renderOverview();
   toast('Ativação (overview) salva ✓');
@@ -10701,7 +10698,7 @@ function renderOverview(){
     const pct   = meta>0?real/meta:0;
     const gap   = Math.max(0,meta-real);
     const proj  = duPass>0?real/duPass*duTotal:0;
-    const atvM  = (()=>{ const o=(DB.ativacaoManualOv||{})[ymKey]; const uid=String(currentUser?.id||'default'); return (o && typeof o==='object') ? (o[uid]??null) : null; })();
+    const atvM  = (()=>{ const o=(DB.ativacaoManualOv||{})[ymKey]; const uid=String(currentUser?.id||'default'); return (o && typeof o==='object' && o[uid]!=null && Number(o[uid])>=0) ? o[uid] : null; })();
     const atv   = atvM!=null ? atvM : sellers.reduce((a,s)=>a+totalAtivacao(ymKey,s.id),0);
     const atvP  = real>0?atv/real:0;
     return {sellers:sellers.length,real,meta,pct,gap,proj,atv,atvP};
@@ -10715,7 +10712,7 @@ function renderOverview(){
                 allScopedSellers.reduce((a,s)=>a+getSellerMeta(ymKey,s.id),0);
   const _ovAtvRaw = (DB.ativacaoManualOv||{})[ymKey];
   const _ovUid    = String(currentUser?.id || 'default');
-  const tAtvM = (_ovAtvRaw && typeof _ovAtvRaw==='object') ? (_ovAtvRaw[_ovUid]??null) : null;
+  const tAtvM = (_ovAtvRaw && typeof _ovAtvRaw==='object' && _ovAtvRaw[_ovUid]!=null && Number(_ovAtvRaw[_ovUid])>=0) ? _ovAtvRaw[_ovUid] : null;
   const tAtv  = tAtvM!=null ? tAtvM : allScopedSellers.reduce((a,s)=>a+totalAtivacao(ymKey,s.id),0);
   const tGap  = Math.max(0,tMeta-tReal);
   const tPct  = tMeta>0?tReal/tMeta:0;
@@ -11680,8 +11677,9 @@ function saveTpvMedio(input, key) {
   if (!DB.mValues[ymKey]) DB.mValues[ymKey] = {};
   if (!DB.mValues[ymKey][grpId]) DB.mValues[ymKey][grpId] = {};
 
-  if (val === null) delete DB.mValues[ymKey][grpId][key];
-  else              DB.mValues[ymKey][grpId][key] = val;
+  // [FIX-OV-DELETE] vazio grava 0 (delete voltaria da nuvem no merge por união)
+  DB.mValues[ymKey][grpId][key] = (val === null ? 0 : val);
+  DB._savedAt = Date.now();
 
   saveDB();
 }
@@ -11719,8 +11717,10 @@ function loadTpvMedioCard() {
   fields.forEach((f, i) => {
     const el = document.getElementById(ids[i]);
     if (!el) return;
+    // [FIX-OV-DIRTY] não sobrescreve o campo que o usuário está digitando
+    if (document.activeElement === el) return;
     const v = data[f];
-    el.value = (v != null) ? _maskBRL(String(Math.round(v * 100))) : '';
+    el.value = (v != null && v !== 0) ? _maskBRL(String(Math.round(v * 100))) : '';
     // Aplica máscara de keyup dinamicamente
     el.oninput = () => { tpvMedioMask(el); _applyTpvColor(el, el.value); };
     // Aplica cor
