@@ -7703,7 +7703,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxqCqdkEDQLANVxYni59UR3mZaW5ur7Zc38p1JyKUMYHHuMonjLvwlQlV-5fu6DQiZf5w/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx-CLIPRv_disr63i-2A_clTV2v743JwDptCp5YtF2Bep0nLpkpEKkKd-EDgH43LeNGYg/exec';
 
 function getCfg(){
   try{
@@ -7726,7 +7726,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxqCqdkEDQLANVxYni59UR3mZaW5ur7Zc38p1JyKUMYHHuMonjLvwlQlV-5fu6DQiZf5w/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx-CLIPRv_disr63i-2A_clTV2v743JwDptCp5YtF2Bep0nLpkpEKkKd-EDgH43LeNGYg/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7735,7 +7735,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbxqCqdkEDQLANVxYni59UR3mZaW5ur7Zc38p1JyKUMYHHuMonjLvwlQlV-5fu6DQiZf5w/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx-CLIPRv_disr63i-2A_clTV2v743JwDptCp5YtF2Bep0nLpkpEKkKd-EDgH43LeNGYg/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -10865,7 +10865,8 @@ function renderOverview(){
       const sup = DB.users?.find(u=>u.role==='supervisor'&&u.timeId===tm.id);
       const canEditM = currentUser?.role==='regional' || isGerente();
       // M0/M1/M2 — input inline, salva com Enter ou ao sair do campo
-      const mData = (DB.mValues||{})[ymKey]?.[tm.id] || {};
+      _ovMigrateLegacy(ymKey, tm.id);
+      const mData = _ovMView((DB.mValues||{})[ymKey]?.[tm.id]);
 
       // ── CNPJ (%) ──
       const cnpjV = mData['CNPJ'];
@@ -10967,17 +10968,36 @@ function renderOverview(){
 
   if(!rgCount) tb=`<tr><td colspan="18" style="text-align:center;padding:28px;color:var(--tl)">Nenhuma regional / time no escopo</td></tr>`;
 
-  // Linha de total geral — M0/M1/M2 editáveis manualmente (chave especial: timeId=0)
-  const totMv = (DB.mValues||{})[ymKey]?.['total']||{};
-  const canEditM = currentUser?.role==='regional' || isGerente();
+  // ── Linha de TOTAL GERAL — calculada AUTOMATICAMENTE a partir dos HUBs visíveis ──
+  // Cada KPI (CNPJ, M0, M1, M2, PARCM0, PARCM1, PARCM2) é consolidado com os valores
+  // digitados nos HUBs do escopo atual (respeita o filtro de regional / perfil).
+  //  • Média PONDERADA pelo Realizado de cada HUB (HUB maior pesa mais).
+  //  • HUBs sem valor preenchido no KPI ficam de fora do cálculo.
+  //  • Se todos os pesos forem 0, cai para média simples.
+  // Para usar média simples sempre, troque OV_TOT_PONDERADO para false.
+  const OV_TOT_PONDERADO = true;
+  const _ovTeamReal = new Map(timesVisiveis.map(tm => [tm.id, timeStats(tm).real]));
+  const _ovTotAgg = (key) => {
+    let sw=0, swv=0, sum=0, n=0;
+    timesVisiveis.forEach(tm => {
+      const raw = _ovMView((DB.mValues||{})[ymKey]?.[tm.id])[key];
+      if(raw==null || raw==='' || isNaN(Number(raw))) return;
+      const v = Number(raw), w = _ovTeamReal.get(tm.id)||0;
+      sw += w; swv += v*w; sum += v; n++;
+    });
+    if(!n) return null;
+    const r = (OV_TOT_PONDERADO && sw>0) ? swv/sw : sum/n;
+    return Math.round(r*10)/10;
+  };
+  const _ovTotCls  = v => v==null?'m-empty':v<30?'m-red':v<=50?'m-yellow':'m-green';
+  const _ovTotTip  = OV_TOT_PONDERADO ? 'Calculado automaticamente: média dos HUBs ponderada pelo realizado' : 'Calculado automaticamente: média simples dos HUBs';
+  const _ovTotCell = (key, bg) => {
+    const v = _ovTotAgg(key);
+    return `<td class="m-cell" style="background:${bg}"><span class="m-val ${_ovTotCls(v)}" title="${_ovTotTip}">${v!=null?v+'%':'—'}</span></td>`;
+  };
 
-  // CNPJ total
-  const totCnpjV = totMv['CNPJ'];
-  const totCnpjCls = totCnpjV==null?'m-empty':totCnpjV<30?'m-red':totCnpjV<=50?'m-yellow':'m-green';
   // 🎨 COR: fundo da célula CNPJ na linha Total → rgba() abaixo (cinza suave)
-  const totCnpjCell = canEditM
-    ? `<td class="m-cell" style="background:rgba(100,116,139,.06)"><div style="display:flex;align-items:center;gap:2px"><input type="number" min="0" max="999" step="0.1" class="m-inline-inp ${totCnpjCls}" value="${totCnpjV!=null?totCnpjV:''}" placeholder="—" title="CNPJ Total" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMPctInline(this,'total','CNPJ','${ymKey}');this.blur();}if(event.key==='Escape')this.blur();" onblur="saveMPctInline(this,'total','CNPJ','${ymKey}')"><span style="font-size:9px;color:var(--tl);font-weight:600">%</span></div></td>`
-    : `<td class="m-cell" style="background:rgba(100,116,139,.06)"><span class="m-val ${totCnpjCls}">${totCnpjV!=null?totCnpjV+'%':'—'}</span></td>`;
+  const totCnpjCell = _ovTotCell('CNPJ', 'rgba(100,116,139,.06)');
 
   const totMCells = (()=>{
     // ┌────────────────────────────────────────────────────────────────────┐
@@ -10990,23 +11010,8 @@ function renderOverview(){
       'rgba(5,150,105,.06)',   /* 🎨 M1 / PARCM1 — fundo (verde suave)   */
       'rgba(217,119,6,.06)',   /* 🎨 M2 / PARCM2 — fundo (laranja suave) */
     ];
-    const scoreCells = ['M0','M1','M2'].map((mk,mi)=>{
-      const grpBg = grpBgs[mi];
-      const v = totMv[mk];
-      let cls = v==null?'m-empty':v<30?'m-red':v<=50?'m-yellow':'m-green';
-      return canEditM
-        ? `<td class="m-cell" style="background:${grpBg}"><div style="display:flex;align-items:center;gap:2px"><input type="number" min="0" max="999" step="0.1" class="m-inline-inp ${cls}" value="${v!=null?v:''}" placeholder="—" title="${mk} Total" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMPctInline(this,'total','${mk}','${ymKey}');this.blur();}if(event.key==='Escape')this.blur();" onblur="saveMPctInline(this,'total','${mk}','${ymKey}')"><span style="font-size:9px;color:var(--tl);font-weight:600">%</span></div></td>`
-        : `<td class="m-cell" style="background:${grpBg}"><span class="m-val ${cls}">${v!=null?v+'%':'—'}</span></td>`;
-    });
-    const pctCells = ['M0','M1','M2'].map((mk,mi)=>{
-      const grpBg = grpBgs[mi];
-      const pk = 'P'+mk;
-      const pv = totMv[pk];
-      const pcls = pv==null?'m-empty':pv<30?'m-red':pv<=50?'m-yellow':'m-green';
-      return canEditM
-        ? `<td class="m-cell" style="background:${grpBg}"><div style="display:flex;align-items:center;gap:2px"><input type="number" min="0" max="999" step="0.1" class="m-inline-inp ${pcls}" value="${pv!=null?pv:''}" placeholder="—" title="Parcelado ${mk} Total" onkeydown="if(event.key==='Enter'){event.preventDefault();saveMPctInline(this,'total','${pk}','${ymKey}');this.blur();}if(event.key==='Escape')this.blur();" onblur="saveMPctInline(this,'total','${pk}','${ymKey}')"><span style="font-size:9px;color:var(--tl);font-weight:600">%</span></div></td>`
-        : `<td class="m-cell" style="background:${grpBg}"><span class="m-val ${pcls}">${pv!=null?pv+'%':'—'}</span></td>`;
-    });
+    const scoreCells = ['M0','M1','M2'].map((mk,mi)=>_ovTotCell(mk, grpBgs[mi]));
+    const pctCells   = ['M0','M1','M2'].map((mk,mi)=>_ovTotCell('P'+mk, grpBgs[mi]));
     return [...scoreCells, ...pctCells].join('');
   })();
 
@@ -11610,32 +11615,84 @@ function saveMValue(){
   toast(`${key} atualizado: ${n!=null?n:'—'}`);
 }
 
+// ══════════════════════════════════════════════════════════
+//  "Resultado por Time" — valores INDEPENDENTES do PSV
+//  Antes: M0/M1/M2 usavam a mesma chave de mValues da Safra do PSV (quantidade),
+//  então editar uma tela alterava a outra. Agora a Visão Geral grava em chaves
+//  próprias com prefixo OV_ (OV_CNPJ, OV_M0…, OV_PM0…, OV_atv) na mesma aba mValues.
+//  Campo vazio grava -1 (sentinela) em vez de apagar: o merge por união traria o
+//  valor antigo de volta da nuvem. -1 é lido como "vazio" por _ovMView().
+// ══════════════════════════════════════════════════════════
+const OV_M_KEYS = ['CNPJ','M0','M1','M2','PM0','PM1','PM2','atv'];
+
+// Visão {CNPJ,M0,…,atv} → valores, com vazio/ausente = undefined
+function _ovMView(raw){
+  const out = {};
+  OV_M_KEYS.forEach(k=>{
+    const v = raw ? raw['OV_'+k] : undefined;
+    if(v!=null && v!=='' && !isNaN(Number(v)) && Number(v)>=0) out[k] = Number(v);
+  });
+  return out;
+}
+
+// Migração única: copia valores antigos (chaves sem prefixo) para OV_.
+// CNPJ, PM0-2 e atv sempre foram só da Visão Geral → copiados.
+// M0-2 eram compartilhados com a Safra do PSV (contagens) → só copia se parecer %, ≤ 100.
+function _ovMigrateLegacy(ymKey, timeId){
+  const o = (DB.mValues||{})[ymKey]?.[timeId];
+  if(!o) return;
+  let changed = false;
+  OV_M_KEYS.forEach(k=>{
+    if(o['OV_'+k] !== undefined) return;
+    const v = o[k];
+    if(v==null || isNaN(Number(v)) || Number(v)<=0) return;
+    if((k==='M0'||k==='M1'||k==='M2') && Number(v)>100) return;
+    o['OV_'+k] = Number(v); changed = true;
+  });
+  if(changed){ DB._savedAt = Date.now(); clearTimeout(_ovMigrateLegacy._t); _ovMigrateLegacy._t = setTimeout(saveDB, 300); }
+}
+
+function _ovStoreM(timeId, key, ymKey, n){
+  if(!DB.mValues) DB.mValues={};
+  if(!DB.mValues[ymKey]) DB.mValues[ymKey]={};
+  if(!DB.mValues[ymKey][timeId]) DB.mValues[ymKey][timeId]={};
+  DB.mValues[ymKey][timeId]['OV_'+key] = (n==null || isNaN(n)) ? -1 : n;
+  DB._savedAt = Date.now();
+}
+
+// Re-renderiza a Visão Geral mantendo o foco no input que o usuário acabou de abrir
+// (Tab/setas/Enter) — sem isso, o re-render destruiria o campo seguinte.
+function _ovRerenderKeepFocus(){
+  setTimeout(()=>{
+    const q = 'input.m-inline-inp';
+    const tb = document.getElementById('ov-tb');
+    const idx = tb ? Array.from(tb.querySelectorAll(q)).indexOf(document.activeElement) : -1;
+    renderOverview();
+    if(idx>=0){
+      const n = document.getElementById('ov-tb')?.querySelectorAll(q)[idx];
+      if(n){ n.focus(); try{ n.select(); }catch(e){} }
+    }
+  },0);
+}
+
+// Ativação por HUB (inteiro)
 function saveMInline(input, timeId, key, ymKey){
   const v = input.value.trim();
   const n = v==='' ? null : parseInt(v);
-  if(!DB.mValues) DB.mValues={};
-  if(!DB.mValues[ymKey]) DB.mValues[ymKey]={};
-  if(!DB.mValues[ymKey][timeId]) DB.mValues[ymKey][timeId]={};
-  if(n===null) delete DB.mValues[ymKey][timeId][key];
-  else DB.mValues[ymKey][timeId][key] = n;
+  _ovStoreM(timeId, key, ymKey, n);
   input.className = 'm-inline-inp ' + (n==null?'m-empty':n<26?'m-red':n<=29?'m-yellow':'m-green');
   saveDB();
-  if(document.getElementById('page-psv')?.classList.contains('active')) renderPSV();
+  _ovRerenderKeepFocus();
 }
 
-// Salva campos de porcentagem (CNPJ, Parcelado M0/M1/M2)
-// Usa parseFloat e lógica de cores baseada em % (≥100 verde, ≥60 amarelo, <60 vermelho)
+// CNPJ, M0/M1/M2 e Parcelado M0/M1/M2 (percentual)
 function saveMPctInline(input, timeId, key, ymKey){
   const v = input.value.trim();
   const n = v==='' ? null : parseFloat(v);
-  if(!DB.mValues) DB.mValues={};
-  if(!DB.mValues[ymKey]) DB.mValues[ymKey]={};
-  if(!DB.mValues[ymKey][timeId]) DB.mValues[ymKey][timeId]={};
-  if(n===null) delete DB.mValues[ymKey][timeId][key];
-  else DB.mValues[ymKey][timeId][key] = n;
+  _ovStoreM(timeId, key, ymKey, n);
   input.className = 'm-inline-inp ' + (n==null?'m-empty':n<30?'m-red':n<=50?'m-yellow':'m-green');
   saveDB();
-  if(document.getElementById('page-psv')?.classList.contains('active')) renderPSV();
+  _ovRerenderKeepFocus(); // recalcula o TOTAL GERAL
 }
 
 // ══ TPV MÉDIO — card na ov-kpi-row ══
