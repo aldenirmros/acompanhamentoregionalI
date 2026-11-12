@@ -1047,7 +1047,13 @@ select.sel:focus{border-color:var(--blue);}
 /* ── QUICK ENTRY (LANÇAMENTO RÁPIDO) ── */
 .quick-entry{background:var(--white);border-radius:var(--r);border:1px solid var(--border);box-shadow:var(--sh);padding:18px;margin-bottom:18px;}
 .qe-title{font-size:13px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
-.qe-grid{display:grid;grid-template-columns:1.5fr 130px 100px 100px auto;gap:10px;align-items:end;}
+.qe-grid{display:grid;grid-template-columns:1.5fr 130px 100px 100px 120px auto;gap:10px;align-items:end;}
+/* [RESELLER] checkbox no formulário de venda + selo na tabela */
+.qe-reseller{display:flex;align-items:center;gap:7px;height:38px;padding:0 11px;border:1.5px solid var(--border);border-radius:var(--rs);background:var(--bg);cursor:pointer;user-select:none;font-size:12px;font-weight:700;color:var(--tm);transition:border-color .14s,background .14s,color .14s;}
+.qe-reseller:hover{border-color:#7c3aed;}
+.qe-reseller input{width:16px;height:16px;margin:0;accent-color:#7c3aed;cursor:pointer;}
+.qe-reseller:has(input:checked){border-color:#7c3aed;background:rgba(124,58,237,.08);color:#7c3aed;}
+.rs-badge{font-size:9.5px;font-weight:800;letter-spacing:.4px;background:rgba(124,58,237,.12);color:#7c3aed;border:1px solid rgba(124,58,237,.28);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:1px;}
 .qe-field{display:flex;flex-direction:column;gap:4px;}
 .qe-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--tl);}
 .qe-input{background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:9px 11px;font-family:var(--font);font-size:13px;font-weight:500;color:var(--td);outline:none;transition:border-color .14s,box-shadow .14s;width:100%;}
@@ -2165,6 +2171,12 @@ canvas { display:block; max-width:100%; }
             <option value="ativacao">Ativação</option>
           </select>
         </div>
+        <div class="qe-field">
+          <div class="qe-lbl">Reseller</div>
+          <label class="qe-reseller" for="qe-reseller" title="Marque se esta venda é de RESELLER">
+            <input type="checkbox" id="qe-reseller"> RESELLER
+          </label>
+        </div>
         <button class="btn-add" onclick="addVenda()">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Adicionar
@@ -2184,6 +2196,11 @@ canvas { display:block; max-width:100%; }
       </select>
       <select id="lf-seller" onchange="onLancarSellerChange()" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer;min-width:180px">
         <option value="">👤 Todos os HC</option>
+      </select>
+      <select id="lf-reseller" onchange="onLancarResellerChange()" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--rs);padding:6px 11px;font-family:var(--font);font-size:12.5px;color:var(--td);outline:none;cursor:pointer">
+        <option value="">🏷️ Todas as vendas</option>
+        <option value="only">🏷️ Somente RESELLER</option>
+        <option value="none">Sem RESELLER</option>
       </select>
       <button class="btn-sm btn-sm-g" id="lf-clear-btn" onclick="clearLancarFilter()" style="display:none">✕ Limpar</button>
       <span id="lf-info" style="font-size:11px;color:var(--tl);margin-left:auto"></span>
@@ -4166,6 +4183,14 @@ let chartBar=null, chartDonut=null, chartLine=null;
 let lancarSellerFilter  = null; // filtro de vendedor na página Lançar
 let lancarHubFilter     = null; // filtro de HUB na página Lançar (gerente/regional)
 let lancarRegionalFilter= null; // filtro de regional na página Lançar (gerente)
+let lancarResellerFilter= '';   // [RESELLER] filtro na página Lançar: '' (todas) | 'only' | 'none'
+// [RESELLER] Considera true/1/'1'/'true'/'sim' — o Sheets devolve texto, então normaliza.
+function isResellerVenda(v){
+  const r = v && v.reseller;
+  if(r === true || r === 1) return true;
+  if(typeof r === 'string'){ const t = r.trim().toLowerCase(); return t==='true' || t==='1' || t==='sim' || t==='x'; }
+  return false;
+}
 
 function loadDB() {
   // Retorna apenas esqueleto mínimo — dados reais sempre vêm da nuvem
@@ -5921,6 +5946,7 @@ function addVenda(){
   const date=document.getElementById('qe-date').value;
   const qty=parseInt(document.getElementById('qe-qty').value)||1;
   const type=document.getElementById('qe-type').value;
+  const reseller=!!document.getElementById('qe-reseller')?.checked; // [RESELLER]
   if(!sid||!date){ toast('Preencha todos os campos','⚠️'); return; }
   const d=new Date(date+'T12:00:00'), {y,m}=ymToYM(currentYM);
   const ymKey=ym(d.getFullYear(),d.getMonth());
@@ -5942,6 +5968,7 @@ function addVenda(){
   // pelo merge para decidir qual registro é mais recente em caso de colisão
   // de id, em vez de confiar só no id. Não substitui nenhum campo existente.
   const _novaVenda = {id:Date.now(),sellerId:sid,date,qty,type,ts:new Date().toISOString(),updatedAt:Date.now()};
+  if(reseller) _novaVenda.reseller = true; // [RESELLER] só grava o campo quando marcado (vendas antigas continuam idênticas)
   DB.vendas[ymKey].push(_novaVenda);
   localStorage.setItem('bi_v5', JSON.stringify(DB)); // salva local imediatamente
   // [V9-ETAPA1/2] Enfileira a operação em IndexedDB ANTES de qualquer envio à
@@ -5957,8 +5984,9 @@ function addVenda(){
   renderDash();
   renderPSVIfActive();
   const s=DB.sellers.find(s=>s.id===sid);
-  toast(`✅ ${qty} ${type}(s) registrada(s) — ${s?.name}`);
+  toast(`✅ ${qty} ${type}(s) registrada(s)${reseller?' [RESELLER]':''} — ${s?.name}`);
   document.getElementById('qe-qty').value=1;
+  { const _rc=document.getElementById('qe-reseller'); if(_rc) _rc.checked=false; } // [RESELLER] desmarca p/ não marcar a próxima por engano
   // Pull-before-push: busca vendas de outros usuários antes de enviar
   setTimeout(cloudSyncVendas, 200);
 }
@@ -6027,6 +6055,10 @@ function renderLancar(){
     });
   }
 
+  // [RESELLER] Filtro por marcação RESELLER
+  if(lancarResellerFilter==='only')      vs = vs.filter(v => isResellerVenda(v));
+  else if(lancarResellerFilter==='none') vs = vs.filter(v => !isResellerVenda(v));
+
   // ── Histórico de transferidos (só quando o HUB está fixo) ──
   let vsHistorico = [];
   const hubIdForHist = u?.role==='supervisor' ? u.timeId : lancarHubFilter;
@@ -6039,11 +6071,14 @@ function renderLancar(){
            .forEach(v=>vsHistorico.push({...v, _transferDate:lastOut.date, _seller:s}));
     });
     vsHistorico.sort((a,b)=>(b.ts||b.date||'').localeCompare(a.ts||a.date||''));
+    if(lancarResellerFilter==='only')      vsHistorico = vsHistorico.filter(v => isResellerVenda(v)); // [RESELLER]
+    else if(lancarResellerFilter==='none') vsHistorico = vsHistorico.filter(v => !isResellerVenda(v));
   }
 
   // ── Contagem ──
   const total = vs.length + vsHistorico.length;
-  document.getElementById('hist-count').textContent=`${vs.length} registro${vs.length!==1?'s':''}${vsHistorico.length?` + ${vsHistorico.length} hist.`:''}`;
+  const _nRs = vs.filter(isResellerVenda).length; // [RESELLER]
+  document.getElementById('hist-count').textContent=`${vs.length} registro${vs.length!==1?'s':''}${vsHistorico.length?` + ${vsHistorico.length} hist.`:''}${(_nRs && lancarResellerFilter!=='only')?` · ${_nRs} RESELLER`:''}`;
 
   function buildRow(v, isHist=false){
     const s = isHist ? v._seller : DB.sellers.find(x=>x.id===v.sellerId);
@@ -6063,7 +6098,7 @@ function renderLancar(){
       <td style="color:var(--tl);font-size:11px">${dow}</td>
       <td><div class="sc"><div class="sd" style="background:${s?.color||'#ccc'}"></div>${s?.name||'—'}${isHist?'<span style="font-size:9px;background:rgba(124,58,237,.1);color:#7c3aed;border:1px solid rgba(124,58,237,.2);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:700">HIST</span>':''}</div></td>
       <td class="mono fw7 fg-g">${v.qty}</td>
-      <td><span style="font-size:11px;background:${v.type==='conquista'?'rgba(5,150,105,.1)':'rgba(37,99,235,.1)'};color:${v.type==='conquista'?'var(--green)':'var(--blue)'};padding:2px 7px;border-radius:4px;font-weight:600">${v.type}</span></td>
+      <td><span style="font-size:11px;background:${v.type==='conquista'?'rgba(5,150,105,.1)':'rgba(37,99,235,.1)'};color:${v.type==='conquista'?'var(--green)':'var(--blue)'};padding:2px 7px;border-radius:4px;font-weight:600">${v.type}</span>${isResellerVenda(v)?'<span class="rs-badge" title="Venda de RESELLER">RESELLER</span>':''}</td>
       <td>${_selo}${!isHist?`<button class="del-btn" onclick="delVenda('${v.id}','${ymKey}')" title="Excluir">✕</button>`:''}</td>
     </tr>`;
   }
@@ -6147,7 +6182,9 @@ function _renderLancarFilterBar(baseSellers){
   }
 
   // ── Botão limpar ──
-  const hasFilter = !!(lancarSellerFilter || lancarHubFilter || lancarRegionalFilter);
+  const rsSel = document.getElementById('lf-reseller'); // [RESELLER]
+  if(rsSel) rsSel.value = lancarResellerFilter || '';
+  const hasFilter = !!(lancarSellerFilter || lancarHubFilter || lancarRegionalFilter || lancarResellerFilter);
   if(clrBtn) clrBtn.style.display = hasFilter ? '' : 'none';
 
   // ── Info contextual ──
@@ -6171,6 +6208,8 @@ function _renderLancarFilterBar(baseSellers){
       const s=DB.sellers.find(x=>x.id===lancarSellerFilter);
       if(s) parts.push(s.name);
     }
+    if(lancarResellerFilter==='only') parts.push('RESELLER');          // [RESELLER]
+    else if(lancarResellerFilter==='none') parts.push('sem RESELLER');
     info.textContent = parts.length ? parts.join(' › ') : '';
   }
 }
@@ -6199,11 +6238,18 @@ function onLancarSellerChange(){
   renderLancar();
 }
 
+// [RESELLER] Filtro de vendas marcadas como RESELLER
+function onLancarResellerChange(){
+  lancarResellerFilter = document.getElementById('lf-reseller')?.value || '';
+  renderLancar();
+}
+
 function clearLancarFilter(){
   const u = currentUser;
   lancarSellerFilter   = null;
   lancarHubFilter      = null;
   lancarRegionalFilter = null;
+  lancarResellerFilter = ''; // [RESELLER]
   const rgSel  = document.getElementById('lf-regional');
   const hubSel = document.getElementById('lf-hub');
   const selSel = document.getElementById('lf-seller');
@@ -6936,7 +6982,7 @@ function renderDbVendas(){
       <td>${t?t.nome:'-'}</td>
       <td>${rg?rg.nome:'-'}</td>
       <td><strong>${v.qty||1}</strong></td>
-      <td style="font-size:11px">${v.type||v.produto||'-'}</td>
+      <td style="font-size:11px">${v.type||v.produto||'-'}${isResellerVenda(v)?'<span class="rs-badge">RESELLER</span>':''}</td>
       <td class="db-actions">
         <button class="db-btn db-btn-del" onclick="dbDelVenda('${ym}',${JSON.stringify(String(v.id))})">🗑</button>
       </td>
@@ -7703,7 +7749,7 @@ function downloadModeloExcel(){
 const CLOUD_LS   = 'bi_cloud_v2';
 // URL do Google Apps Script gravada diretamente no HTML — mesmo banco em TODOS os dispositivos
 // Substitua pela URL do seu Web App depois de implantar o Apps Script
-const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx-CLIPRv_disr63i-2A_clTV2v743JwDptCp5YtF2Bep0nLpkpEKkKd-EDgH43LeNGYg/exec';
+const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx8u0RtEhrrF488axJswyjlcOD7m-cUWZlbgkQ5xZ52xpKpOy1ISGw6izFfneZSp2HipQ/exec';
 
 function getCfg(){
   try{
@@ -7726,7 +7772,7 @@ async function exportHtmlWithGsUrl(){
     // [V-3 MELHORIA 2] — retry automático para exportação do HTML
     const res  = await fetchWithRetry(window.location.href, {}, 3);
     let   html = await res.text();
-    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx-CLIPRv_disr63i-2A_clTV2v743JwDptCp5YtF2Bep0nLpkpEKkKd-EDgH43LeNGYg/exec';`);
+    html = html.replace(/const HARDCODED_GS_URL = '[^']*';/, `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx8u0RtEhrrF488axJswyjlcOD7m-cUWZlbgkQ5xZ52xpKpOy1ISGw6izFfneZSp2HipQ/exec';`);
     const blob = new Blob([html],{type:'text/html'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -7735,7 +7781,7 @@ async function exportHtmlWithGsUrl(){
     toast('✅ HTML baixado com URL embutida!');
   } catch(e){
     toast('Para embutir a URL, edite manualmente a linha HARDCODED_GS_URL no HTML.','⚠️');
-    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx-CLIPRv_disr63i-2A_clTV2v743JwDptCp5YtF2Bep0nLpkpEKkKd-EDgH43LeNGYg/exec';`);
+    prompt('Substitua a linha HARDCODED_GS_URL no HTML por:', `const HARDCODED_GS_URL = 'https://script.google.com/macros/s/AKfycbx8u0RtEhrrF488axJswyjlcOD7m-cUWZlbgkQ5xZ52xpKpOy1ISGw6izFfneZSp2HipQ/exec';`);
   }
 }
 function setCfg(c){ localStorage.setItem(CLOUD_LS, JSON.stringify(c)); }
@@ -9334,6 +9380,8 @@ function tablesToDB(tables) {
     if (v.id != null) v.id = String(v.id);
     if (v.sellerId != null) v.sellerId = isNaN(Number(v.sellerId)) ? v.sellerId : Number(v.sellerId);
     if (v.qty != null) v.qty = Number(v.qty);
+    // [RESELLER] Sheets devolve texto ('true'); normaliza p/ booleano e não carrega campo vazio
+    if (isResellerVenda(v)) v.reseller = true; else delete v.reseller;
     // Normaliza date: Sheets pode devolver "2026-01-05T00:00:00.000Z" em vez de "2026-01-05"
     if (v.date && typeof v.date === 'string' && v.date.length > 10) {
       v.date = v.date.slice(0, 10); // extrai apenas YYYY-MM-DD
@@ -10589,6 +10637,7 @@ function applySession(){
     lancarRegionalFilter= null;
   }
   lancarSellerFilter = null;
+  lancarResellerFilter = ''; // [RESELLER]
 
   populateDashFilter();
 }
